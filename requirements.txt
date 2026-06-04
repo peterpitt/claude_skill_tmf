@@ -1,0 +1,8 @@
+# Core broker SDK for 永豐金證券 (SinoPac) Taiwan futures trading
+shioaji>=1.2.0
+
+# Environment variable management (.env)
+python-dotenv>=1.0.0
+
+# Timezone handling (Asia/Taipei) without relying on system tz database
+pytz>=2024.1

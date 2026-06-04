@@ -1,0 +1,17 @@
+# 機密：金鑰、憑證、環境變數 — 絕不進版控
+.env
+*.pfx
+*.p12
+ca/
+
+# log
+logs/
+*.log
+
+# python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+.pytest_cache/
+*.egg-info/
