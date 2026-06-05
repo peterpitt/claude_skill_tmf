@@ -1,0 +1,42 @@
+//@version=5
+strategy("@課程範例－and、or與not｜量化通", overlay=true)
+
+SmallLen = 25
+MidLen = 50
+BigLen = 100
+
+//計算短均線與長均線
+SmallMA = ta.sma(close, SmallLen)
+MidMA = ta.sma(close, MidLen)
+BigMA = ta.sma(close, BigLen)
+
+//畫出MA
+plot(SmallMA,"SmallMA",color = color.yellow)
+plot(MidMA,"MidMA",color = color.blue)
+plot(BigMA,"BigMA",color = color.green)
+
+
+//進場條件判斷
+longCondition1 = SmallMA>MidMA and MidMA>BigMA
+
+//進場條件判斷
+longCondition2 = SmallMA>MidMA or MidMA>BigMA
+
+//進場條件判斷
+longCondition3 = SmallMA>MidMA and not(MidMA<BigMA)
+
+//進場條件判斷
+longCondition4 = SmallMA>MidMA and (not(MidMA<BigMA) or (high>high[1] and high[1]>high[2]))
+longCondition5 = SmallMA>MidMA and (
+not(MidMA<BigMA) or
+(high>high[1] and high[1]>high[2])
+)
+
+
+//進場條件執行
+if (longCondition3)
+strategy.entry("LE", strategy.long)
+
+if
+
+

@@ -1,0 +1,74 @@
+//@version=5
+strategy(title="@課程範例－A型/V型反轉交易模組（猜頭、摸底）｜量化通", shorttitle="AV轉範例策略｜量化通", //圖表上顯示的短名稱
+overlay = false, //true疊圖，false下方單獨視窗 format=format.price, //format.price輸出格式為價格 precision=2, //顯示小數點後兩位
+default_qty_type=strategy.cash, initial_capital=10000, //初始本金1萬 default_qty_value=10000, commission_value=0.04 ) //每次進場1萬，手續費單邊萬分之
+4
+
+//start前置設定
+
+strategy.cancel_all() //每次收K都清空委託單
+//常用函數
+MP = strategy.opentrades.size(strategy.opentrades -1)>0?1:strategy.opentrades.size(strategy.opentrades - 1)<0?-1:0
+//end前置設定
+
+
+//指標計算
+Counter = input.int(5, minval=1, title="計數器")
+Gap = input.float(5, minval=0.01, title="反轉%")
+
+var LowestBar = 0 //儲存過去一段時間內最低價的K棒出現在過去第幾根K，-1代表前一根，-3代表前3根
+var HighestBar = 0 //儲存過去一段時間內最高價的K棒出現在過去第幾根K，-1代表前一根，-3代表前3根
+LowestBar := ta.lowestbars(low,Counter)
+HighestBar := ta.highestbars(high,Counter)
+
+var LongCounter = 0 //多方計數器，儲存可以進場的倒數K棒數 var ShortCounter = 0 //空方計數器，儲存可以進場的倒數K棒數 LongCounter := LongCounter>0 ? LongCounter-1 : 0 ShortCounter := ShortCounter>0 ? ShortCounter-1 : 0
+
+var LL = 0.00 //過去一段時間內最低價 var HH = 0.00 //過去一段時間內最高價
+
+if LowestBar==0 and ta.highest(high,Counter)-low>Gap*0.01*close
+//若 當下的K棒是一段時間內的最低點 且 一段時間內的最高點-K棒低點>一定的波動度
+//破低 且 有波動，代表符合V轉的前置條件急跌
+LongCounter := Counter LL := low
+if HighestBar==0 and high-ta.lowest(low,Counter)>Gap*0.01*close ShortCounter := Counter
+HH := high
+
+//進場條件
+MaxUseBars = 1+math.max(Counter,1)//每個策略要重新設定
+LongEntry = bar_index>MaxUseBars and MP<=0 and LongCounter>0 and close>LL+(Gap*0.01*close)
+ShortEntry = bar_index>MaxUseBars and MP>=0 and ShortCounter>0 and close<HH-(Gap*0.01*close)
+
+//多單委託
+if LongEntry
+strategy.entry("LE", strategy.long) //多單進場 LongCounter := 0
+
+//空單委託
+if ShortEntry
+strategy.entry("SE", strategy.short) //空單進場 ShortCounter := 0
+
+//出場條件執行
+SL = input.float(5.0,"停損%")
+PT = input.float(5.0,"停利%")
+EntryPrice = strategy.opentrades.entry_price(strategy.opentrades - 1) //未平倉的進場價
+SLPrice = EntryPrice*(1-(MP*SL*0.01))
+PTPrice = EntryPrice*(1+(MP*PT*0.01))
+if MP>0
+strategy.exit("LX", "LE", limit=PTPrice, stop=SLPrice, comment_profit="PT", comment_loss="SL")
+if MP<0
+strategy.exit("SX", "SE", limit=PTPrice, stop=SLPrice, comment_profit="PT", comment_loss="SL")
+
+
+
+//上底色，持有多單底色綠色，持有空單底色紅色
+colorBG = strategy.opentrades.size(strategy.opentrades-1)>0 ? color.new(color.green,80) :
+
+strategy.opentrades.size(strategy.opentrades-1)<0 ? color.new(color.red,80)
+:
+color.new(color.gray,100)
+bgcolor(colorBG, force_overlay=true)
+
+//繪圖 plot(LowestBar,"LowestBar",color.green)
+plot(HighestBar,"HighestBar",color.red)
+plot(LongCounter,"LongCounter",color.green)
+plot(ShortCounter,"ShortCounter",color.red)
+
+

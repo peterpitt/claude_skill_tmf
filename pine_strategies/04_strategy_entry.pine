@@ -1,0 +1,33 @@
+//@version=5
+strategy("@課程範例－strategy.entry()使用範例｜量化通", overlay=true, initial_capital=10000, default_qty_type=strategy.cash, default_qty_value=10000, commission_value=0.04)
+//初始本金1萬元，每次進場1萬元，手續費單邊0.04%，使用情境：加密貨幣
+1063014120563//
+//initial_capital=500000, default_qty_type=strategy.fixed, default_qty_value=1,
+//commission_type=strategy.commission.cash_per_contract, commission_value=500)
+//初始本金50萬元，每次進場1口，手續費單邊500元，使用情境：台指期
+
+//參數設定
+SmallLen = input.int(20, "短均線的長度")
+BigLen = input.int(50, "長均線的長度")
+
+//計算短均線與長均線
+SmallMA = ta.sma(close, SmallLen)
+BigMA = ta.sma(close, BigLen)
+
+//進場條件判斷
+longCondition = ta.crossover(SmallMA, BigMA)
+shortCondition = ta.crossunder(SmallMA, BigMA)
+
+//進場條件執行
+if longCondition
+strategy.entry("LE", strategy.long)
+
+if shortCondition
+strategy.entry("SE", strategy.short)
+
+plot(SmallMA,"SmallMA",color.yellow)
+plot(BigMA,"BigMA",color.blue)
+
+strategy.close()使用範例
+
+

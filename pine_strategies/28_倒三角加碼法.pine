@@ -1,0 +1,36 @@
+//@version=5
+strategy("@課程範例－倒三角加碼法｜量化通", overlay=true, pyramiding=3)
+
+//參數設定
+SmallLen = input.int(50, "短均線的長度")
+MidLen = input.int(100, "中均線的長度")
+BigLen = input.int(200, "長均線的長度")
+
+//計算短均線與長均線
+SmallMA = ta.sma(close, SmallLen)
+MidMA = ta.sma(close, MidLen)
+BigMA = ta.sma(close, BigLen)
+
+longCondition0 = ta.crossover(close, SmallMA)
+longCondition1 = ta.crossover(SmallMA, MidMA)
+longCondition2 = ta.crossover(MidMA, BigMA)
+
+//進場條件執行
+if longCondition0
+strategy.entry("LE0", strategy.long, qty=1)
+else if longCondition1
+strategy.entry("LE1", strategy.long, qty=2)
+else if longCondition2
+strategy.entry("LE2", strategy.long, qty=3)
+
+//出場條件執行
+//strategy.exit("LX", profit=50000, loss=20000)
+MP = strategy.opentrades.size(strategy.opentrades - 1)>0?1
+:strategy.opentrades.size(strategy.opentrades - 1)<0?-1:0 if MP>0 and close<SmallMA and SmallMA<MidMA and MidMA<BigMA
+strategy.close_all("空頭排列全部出場")
+
+plot(SmallMA,"SmallMA",color.yellow)
+plot(MidMA,"MidMA",color.blue)
+plot(BigMA,"BigMA",color.orange)
+
+

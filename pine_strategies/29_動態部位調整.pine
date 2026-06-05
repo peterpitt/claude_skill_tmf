@@ -1,0 +1,33 @@
+//@version=5
+strategy("@課程範例－動態部位調整｜量化通", overlay=true, pyramiding=1)
+
+//參數設定
+SmallLen = input.int(50, "短均線的長度")
+MidLen = input.int(100, "中均線的長度")
+BigLen = input.int(200, "長均線的長度")
+
+//計算短均線與長均線
+SmallMA = ta.sma(close, SmallLen)
+MidMA = ta.sma(close, MidLen)
+BigMA = ta.sma(close, BigLen)
+
+longCondition1 = ta.crossover(SmallMA, MidMA)
+
+var EntryQTY = 1.00 if MidMA>BigMA
+EntryQTY := 2 else if MidMA<BigMA
+EntryQTY := 1
+
+//進場條件執行
+if longCondition1
+strategy.entry("LE1", strategy.long, qty=EntryQTY)
+
+//出場條件執行
+strategy.exit("LX", profit=50000, loss=20000)
+
+plot(SmallMA,"SmallMA",color.yellow)
+plot(MidMA,"MidMA",color.blue)
+plot(BigMA,"BigMA",color.orange)
+
+一次出場與分批出場
+
+

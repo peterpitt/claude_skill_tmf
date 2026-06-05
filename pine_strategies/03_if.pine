@@ -1,0 +1,66 @@
+//@version=5
+indicator("@課程範例－if｜量化通",overlay = true)
+//記得把想plot的「//」拿掉
+
+
+x1 = if close > open close
+// 若 收盤價 > 開盤價，則 x1 = 收盤價
+// 若 條件不成立，則 x1 = na，即不繪圖
+//plot(x1,style = plot.style_cross, color = color.purple,linewidth = 3)
+
+106301470237//
+
+x2 = if close > open close
+else
+open
+// 若 收盤價 > 開盤價，則 x2 = 收盤價
+// 若 條件不成立，則 x2 = 開盤價
+//plot(x2,style = plot.style_cross, color = color.purple,linewidth = 3)
+
+106301470471//
+
+x3 = if high > high[1] high
+else if low < low[1] low
+else
+close
+// 若 最高價>最高價[1]，則 x3 = 最高價
+// 若 最低價<最低價[1]，則 x3 = 最低價
+// 若 以上條件皆不成立，則 x3 = 收盤價
+//plot(x3,style = plot.style_cross, color = color.purple,linewidth = 3)
+
+106301469958//
+
+float x4 = na
+if high > high[1] if close>open
+x4 := high+10 else
+x4 := high else if low < low[1]
+
+if close<open
+x4 := low-10 else
+x4 := low
+else
+close
+//plot(x4,style = plot.style_cross, color = color.purple,linewidth = 3)
+
+106301470352//
+
+//x2 = if close > open
+//    close
+//else
+//    open
+y2 = close>open ? close : open
+
+//x3 = if high > high[1]
+//    high
+//else if low < low[1]
+//    low
+//else
+//    close
+y3 = high>high[1] ? high : (low<low[1] ? low : close)
+y33 = high>high[1] ? high :
+(low<low[1] ? low : close)
+plot(na)
+
+strategy.entry()使用範例
+
+

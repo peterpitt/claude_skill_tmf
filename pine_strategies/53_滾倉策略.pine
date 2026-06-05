@@ -1,0 +1,64 @@
+//@version=5
+strategy(title="@課程範例－滾倉策略｜量化通", shorttitle="滾倉策略｜量化通", //圖表上顯示的短名稱 overlay = true, //true疊圖，false下方單獨視窗 format=format.price, //format.price輸出格式為價格 precision=2, //顯示小數點後兩位
+default_qty_type=strategy.cash, initial_capital=10000, //初始本金1萬 default_qty_value=10000, commission_value=0.04 ) //每次進場1萬，手續費單邊萬分之
+4
+
+//start前置設定
+
+strategy.cancel_all() //每次收K都清空委託單
+//常用函數
+//常用函數
+MP = strategy.opentrades.size(strategy.opentrades -1)>0?1:strategy.opentrades.size(strategy.opentrades - 1)<0?-1:0 EntryPrice = strategy.opentrades.entry_price(strategy.opentrades - 1)
+BarsSinceEntry = bar_index -strategy.opentrades.entry_bar_index(strategy.opentrades - 1)
+//end前置設定
+
+
+//RSI指標計算
+rsiLen = input.int(14, minval=1, maxval=1000, step=2, title="RSI長度", group="RSI參數設定")
+rsiUpper = input.int(70, minval=0, maxval=100, step=5, title="RSI上界", group="RSI參數設定")
+rsiLower = input.int(30, minval=0, maxval=100, step=5, title="RSI下界", group="RSI參數設定")
+rsi = ta.rsi(close,rsiLen)
+
+//進場條件
+MaxUseBars = 1+math.max(rsiLen,1)//每個策略要重新設定
+LongEntry = bar_index>MaxUseBars and MP<=0 and ta.crossover(rsi,rsiUpper)
+ShortEntry = bar_index>MaxUseBars and MP>=0 and ta.crossunder(rsi,rsiLower)
+
+//濾網計算
+
+
+//計算委託的單位
+var OrderMoney = 0.00
+OrderMoney := strategy.initial_capital //初始本金 if TimeFillter
+OrderMoney := OrderMoney+math.max(strategy.netprofit*0.5,0)
+if close>ta.sma(close, rsiLen)
+OrderMoney := OrderMoney+math.max(strategy.netprofit*0.5,0)
+if rsi>rsiUpper+10 or rsi<rsiLower-10
+OrderMoney := strategy.initial_capital*2
+
+//多單委託
+if LongEntry and TimeFillter
+strategy.entry("LE", strategy.long, OrderMoney/close) //多單進場
+
+//空單委託
+if ShortEntry and TimeFillter
+strategy.entry("SE", strategy.short, OrderMoney/close) //空單進場
+
+//出場條件執行
+SL = input.float(10.00,"停損%")
+PT = input.float(30.00,"停利%")
+SLPrice = EntryPrice*(1-(MP*SL*0.01))
+PTPrice = EntryPrice*(1+(MP*PT*0.01))
+if MP>0
+strategy.exit("LX", limit=PTPrice, stop=SLPrice)
+if MP<0
+strategy.exit("SX", limit=PTPrice, stop=SLPrice)
+
+//上底色，持有多單底色綠色，持有空單底色紅色
+colorBG = strategy.opentrades.size(strategy.opentrades-1)>0 ? color.new(color.green,80) :
+strategy.opentrades.size(strategy.opentrades-1)<0 ? color.new(color.red,80)
+:
+color.new(color.gray,100)
+bgcolor(colorBG, force_overlay=true)
+
+

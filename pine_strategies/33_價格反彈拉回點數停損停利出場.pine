@@ -1,0 +1,66 @@
+//@version=5
+strategy("@課程範例－價格反彈拉回點數 停損停利出場｜量化通", overlay = true, //true疊圖，false下方單獨視窗 format=format.price, //format.price輸出格式為價格 precision=2, //顯示小數點後兩位
+default_qty_type=strategy.cash, initial_capital=10000, //初始本金1萬 default_qty_value=10000, commission_value=0.04, //每次進場1萬，手續費單邊萬分之4 max_bars_back=300 )
+
+//start前置設定
+
+strategy.cancel_all() //每次收K都清空委託單
+//常用函數
+MP = strategy.opentrades.size(strategy.opentrades -1)>0?1:strategy.opentrades.size(strategy.opentrades - 1)<0?-1:0
+//end前置設定
+
+
+//參數設定
+SmallLen = 20//input.int(20, "短均線的長度")
+BigLen = 50//input.int(50, "長均線的長度")
+
+//計算短均線與長均線
+SmallMA = ta.sma(close, SmallLen)
+BigMA = ta.sma(close, BigLen)
+
+MaxUseBars = 1+math.max(SmallLen,BigLen,1)//每個策略要重新設定 longCondition = bar_index>MaxUseBars and MP<=0 and ta.crossover(SmallMA, BigMA)
+
+//進場條件執行
+if longCondition
+strategy.entry("LE", strategy.long)
+
+//出場條件執行
+PBPoint = input.float(50.00,"拉回點數")
+EntryPrice = strategy.opentrades.entry_price(strategy.opentrades - 1) //未平倉的進場價
+
+BarsSinceEntry = bar_index -strategy.opentrades.entry_bar_index(strategy.opentrades - 1)//進場後經過了幾根K棒
+
+var CountBarsSinceEntry = 0 if MP!=MP[1] and MP!=0
+CountBarsSinceEntry := 1 else if MP!=0
+CountBarsSinceEntry := CountBarsSinceEntry+1 else if MP==0
+CountBarsSinceEntry := 0
+
+HH = ta.highest(high,math.max(CountBarsSinceEntry,1))
+LL = ta.lowest(low,math.max(CountBarsSinceEntry,1))
+
+var HighSinceEntry = 0.00 var LowSinceEntry = 0.00 if CountBarsSinceEntry>0
+HighSinceEntry := HH LowSinceEntry := LL
+var PBPrice = 0.00 if MP>0
+PBPrice := HighSinceEntry-PBPoint else if MP<0
+PBPrice := LowSinceEntry+PBPoint else
+PBPrice := -9999999
+
+strategy.exit("LX_拉回出場", stop=PBPrice)
+
+//上底色，持有多單底色綠色，持有空單底色紅色
+colorBG = strategy.opentrades.size(strategy.opentrades-1)>0 ? color.new(color.green,80) :
+strategy.opentrades.size(strategy.opentrades-1)<0 ? color.new(color.red,80)
+:
+color.new(color.gray,100)
+bgcolor(colorBG, force_overlay=true)
+
+plot(SmallMA,"SmallMA",color.yellow)
+plot(BigMA,"BigMA",color.blue)
+plot(PBPrice[1]>0 ? PBPrice[1] : na,"PBPrice",color.red, style = plot.style_stepline)
+
+
+
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © QuantPass
+
+

@@ -1,0 +1,38 @@
+//@version=5
+strategy("@課程範例－strategy.cancel()使用範例｜量化通", overlay=true, initial_capital=10000, default_qty_type=strategy.cash, default_qty_value=10000, commission_value=0.04)
+//初始本金1萬元，每次進場1萬元，手續費單邊0.04%，使用情境：加密貨幣
+
+//參數設定
+SmallLen = input.int(20, "短均線的長度")
+BigLen = input.int(50, "長均線的長度")
+
+//計算短均線與長均線
+SmallMA = ta.sma(close, SmallLen)
+BigMA = ta.sma(close, BigLen)
+
+//進出場條件判斷
+longCondition = ta.crossover(SmallMA, BigMA)
+long_exit_Condition = ta.crossunder(SmallMA, BigMA)
+
+//進場條件執行
+if longCondition
+strategy.entry("LE", strategy.long, stop=high)
+//刪單條件執行
+if not longCondition
+//strategy.cancel("LE")
+strategy.cancel_all()
+//出場條件執行
+if long_exit_Condition strategy.close("LE", "LX_by close")
+//停損停利設定
+if strategy.opentrades.size(strategy.opentrades - 1)>0 //if 持有多單
+strategy.exit("LX_by exit", "LE", profit = 10000, loss = 5000)
+
+plotshape(longCondition,"longCondition=true", style = shape.diamond)
+plot(SmallMA,"SmallMA",color.yellow)
+plot(BigMA,"BigMA",color.blue)
+
+RSI指標交易模組（超買超賣逆勢進場、順勢進場）
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © QuantPass
+
+
