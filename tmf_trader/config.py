@@ -69,6 +69,13 @@ class Config:
     #  進場要求 FVD 與均線方向一致，且絕對值需 >= 此門檻（口/張）。
     fvd_entry_threshold: int = 30
 
+    # ---- 趨勢品質濾網（降低盤整假突破的洗損）------------------------- #
+    #  收盤需『站穩』均線：突破幅度至少這麼多點才算數（0=不啟用）。
+    entry_ma_buffer_points: float = 3.0
+    #  只順著均線斜率方向進場：多單要 MA 上揚、空單要 MA 下彎。
+    use_ma_slope_filter: bool = True
+    ma_slope_lookback: int = 3   # 以幾根前的 MA 比較算斜率
+
     # ---- 風控：絕對停損（當日累計虧損達此金額立刻斷路器）------------- #
     daily_max_loss_twd: float = 2_890.0
 

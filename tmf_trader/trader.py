@@ -137,7 +137,7 @@ class Trader:
             self.fvd.add_tick(ts, vol, ttype)
             closed = self.agg.add_tick(ts, price, vol)
             if closed is not None:
-                self._on_bar_close(closed)
+                self._on_bar_close(closed, ts)
         except Exception as e:  # noqa: BLE001
             self.log.error("處理 TXF tick 失敗: %s", e)
 
@@ -191,9 +191,9 @@ class Trader:
     # ------------------------------------------------------------------ #
     #  訊號 → 下單
     # ------------------------------------------------------------------ #
-    def _on_bar_close(self, closed) -> None:
+    def _on_bar_close(self, closed, now=None) -> None:
         self.log.info("5分K收盤: %s", closed)
-        signal = self.strategy.on_bar_close(closed, self.book.position)
+        signal = self.strategy.on_bar_close(closed, self.book.position, now)
         if signal == Signal.NONE:
             return
 
