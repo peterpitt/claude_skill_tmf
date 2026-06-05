@@ -24,6 +24,7 @@ from .risk import CircuitBreaker
 from .session import SessionManager, SessionType
 from .strategy import Signal, Strategy
 from .strategy_orb import ORBStrategy, Signal as ORBSignal
+from .strategy_efficiency import EfficiencyStrategy
 
 
 class Trader:
@@ -36,12 +37,16 @@ class Trader:
         self.agg = KBarAggregator(cfg.kbar_minutes, cfg.ma_period)
         self.fvd = FVDTracker(cfg.fvd_window_seconds)
         self.session = SessionManager(cfg)
-        # 策略選擇：ORB（完全 bar-based，可用 K 線回測）或舊版 MA+FVD。
-        if cfg.strategy == "orb":
+        # 策略選擇：efficiency（高效波段，波段留倉）/ orb（日內）/ ma_fvd（舊版）。
+        self.orb = None
+        self.strategy = None
+        self.eff = None
+        self.swing = (cfg.trading_style == "swing")
+        if cfg.strategy == "efficiency":
+            self.eff = EfficiencyStrategy(cfg, logger)
+        elif cfg.strategy == "orb":
             self.orb = ORBStrategy(cfg, self.session, logger)
-            self.strategy = None
         else:
-            self.orb = None
             self.strategy = Strategy(cfg, self.agg, self.fvd, logger)
         # ORB 動態出場狀態（進場時設定）
         self._orb_dir = 0
@@ -58,7 +63,7 @@ class Trader:
             get_price=lambda: self.book.last_price,
         )
 
-        self._order_lock = threading.Lock()   # 序列化下單，避免重複/競態
+        self._order_lock = threading.RLock()  # 可重入：序列化下單，且允許持鎖時呼叫 flatten_all
         self._stop = threading.Event()
         self._forced_closed_session: Optional[tuple] = None  # 已強制平倉的時段
 
@@ -116,6 +121,8 @@ class Trader:
 
     def _handle_force_close(self, now: datetime) -> None:
         """收盤前 15 分鐘強制平倉，且整段窗內維持平倉、停新倉。"""
+        if self.swing:
+            return  # 波段策略刻意留倉，不做收盤前強平
         if not self.session.in_force_close_window(now):
             return
         sess_key = (self.session._trading_day_key(now), self.session.current_session(now))
@@ -207,6 +214,9 @@ class Trader:
     # ------------------------------------------------------------------ #
     def _on_bar_close(self, closed, now=None) -> None:
         self.log.info("%d分K收盤: %s", self.cfg.kbar_minutes, closed)
+        if self.eff is not None:
+            self._on_bar_close_swing(closed, now)
+            return
         if self.orb is not None:
             self._on_bar_close_orb(closed, now)
             return
@@ -280,9 +290,12 @@ class Trader:
             return True
 
     def _check_per_trade_stop(self, price: float) -> None:
-        """單筆出場：ORB 用動態停損/停利/移動停損；MA 版用固定點數停損。"""
+        """單筆出場：ORB 用動態停損/停利；MA 版用固定點數停損；
+        高效波段刻意不加硬停損（回測證實會打斷順勢出場、反而變差）。"""
         if self.book.position == 0:
             return
+        if self.eff is not None:
+            return  # 波段策略：只在 K 棒收盤依效率比出場，不設盤中硬停損
         if self.orb is not None:
             self._check_orb_exit(price)
             return
@@ -322,6 +335,41 @@ class Trader:
             self.flatten_all("ORB_TARGET")
 
     # ------------------------------------------------------------------ #
+    #  高效波段（swing / 目標部位）
+    # ------------------------------------------------------------------ #
+    def _on_bar_close_swing(self, closed, now=None) -> None:
+        """波段策略：依效率比取得『目標部位方向』，再調節實際部位。"""
+        target = self.eff.on_bar(closed, self.book.position)
+        self._swing_set_target(target)
+
+    def _swing_set_target(self, target: int) -> None:
+        """把實際部位調節到目標方向（+1/-1/0）。會反手、會留倉。"""
+        cur = 1 if self.book.position > 0 else -1 if self.book.position < 0 else 0
+        if target == cur:
+            return
+        with self._order_lock:
+            if self.risk.tripped:
+                self.log.warning("斷路器已觸發，今日禁止調節部位。")
+                return
+            cur = 1 if self.book.position > 0 else -1 if self.book.position < 0 else 0
+            if target == cur:
+                return
+            # 先平掉反向或全部
+            if cur != 0:
+                self.flatten_all("SWING_EXIT" if target == 0 else "SWING_REVERSE")
+            if target != 0:
+                action = "Buy" if target > 0 else "Sell"
+                self.broker.place_market(action, self.cfg.order_quantity,
+                                         range_market=True, reason="SWING_ENTRY")
+                self.log.info("波段進場：目標方向=%d（%s %d 口）。",
+                              target, action, self.cfg.order_quantity)
+                # DRY_RUN 無真實成交回報，手動更新部位簿以維持一致。
+                if self.cfg.dry_run:
+                    px = self.book.last_price or self.agg.current_price() or 0.0
+                    if px:
+                        self.book.on_fill(action, px, self.cfg.order_quantity)
+
+    # ------------------------------------------------------------------ #
     #  平倉
     # ------------------------------------------------------------------ #
     def flatten_all(self, reason: str) -> None:
@@ -359,16 +407,30 @@ class Trader:
                       c.order_symbol, c.order_spec.name_zh,
                       c.order_spec.point_value, c.order_quantity)
         self.log.info(" 本金            : %d TWD", c.account_capital_twd)
-        if c.strategy == "orb":
+        if c.strategy == "efficiency":
+            self.log.info(" 策略            : 高效波段(效率比) %d分K ER長度%d 門檻±%.2f",
+                          c.kbar_minutes, c.er_length, c.er_threshold)
+            self.log.info(" 去除頻繁交易    : %s（最近%d根最多%d次）",
+                          c.use_antifreq, c.antifreq_range_bars, c.antifreq_max_trades)
+        elif c.strategy == "orb":
             self.log.info(" 策略            : ORB 開盤區間突破 %d分K OR%d分 buf%.0f VWAP=%s TP%.1fR trail=%s",
                           c.kbar_minutes, c.or_minutes, c.orb_breakout_buffer_points,
                           c.orb_use_vwap_filter, c.orb_take_profit_R, c.orb_use_trailing)
         else:
             self.log.info(" 策略            : %d分K %dMA + FVD(±%d/%ds)",
                           c.kbar_minutes, c.ma_period, c.fvd_entry_threshold, c.fvd_window_seconds)
-        self.log.info(" 單筆停損        : %.0f 點 (≈%.0f TWD)",
-                      c.per_trade_stop_points, c.per_trade_stop_twd())
-        self.log.info(" 當日斷路器      : 累計虧損 %.0f TWD", c.daily_max_loss_twd)
-        self.log.info(" 出手上限        : 早/夜盤各 %d 次", c.max_entries_per_session)
-        self.log.info(" 收盤前強制平倉  : %d 分鐘", c.force_close_minutes_before)
+        self.log.info(" 交易型態        : %s%s", c.trading_style,
+                      "（會留倉，不收盤強平）" if self.swing else "（日內，不留倉）")
+        if self.eff is None:
+            self.log.info(" 單筆停損        : %.0f 點 (≈%.0f TWD)",
+                          c.per_trade_stop_points, c.per_trade_stop_twd())
+        self.log.info(" 當日斷路器      : %s",
+                      f"累計虧損 {c.daily_max_loss_twd:.0f} TWD" if c.daily_max_loss_twd > 0 else "停用")
+        if not self.swing:
+            self.log.info(" 出手上限        : 早/夜盤各 %d 次", c.max_entries_per_session)
+            self.log.info(" 收盤前強制平倉  : %d 分鐘", c.force_close_minutes_before)
+        # 波段 + 小額斷路器 的衝突提醒
+        if self.swing and 0 < c.daily_max_loss_twd < 5000:
+            self.log.warning(" ⚠️ 波段策略會留倉，當日斷路器 %.0f 可能過小、會頻繁中斷策略；"
+                             "請評估調大或設 0 停用，改用部位/口數控管。", c.daily_max_loss_twd)
         self.log.info("=" * 64)

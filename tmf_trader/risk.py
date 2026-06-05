@@ -109,6 +109,10 @@ class CircuitBreaker:
         if self.tripped:
             return
 
+        # daily_max_loss_twd <= 0 表示停用斷路器（波段模式可能如此設定）。
+        if self.cfg.daily_max_loss_twd <= 0:
+            return
+
         # 觸發條件：累計虧損達門檻（total 為負，故比較 <= -limit）。
         if total <= -self.cfg.daily_max_loss_twd:
             self._trip(total)

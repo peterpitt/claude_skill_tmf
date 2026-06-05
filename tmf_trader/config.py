@@ -89,7 +89,21 @@ class Config:
     orb_take_profit_R: float = 1.8       # 停利為風險(R)的幾倍（0=不停利，只靠出場/強平）
     orb_use_trailing: bool = True        # 達 1R 後啟用移動停損(鎖獲利)
 
-    # ---- 風控：絕對停損（當日累計虧損達此金額立刻斷路器）------------- #
+    # ---- 高效波段（Kaufman 效率比）波段策略 strategy="efficiency" ------ #
+    #  真實資料逐年回測最佳：30 分 K、效率比 + 去除頻繁交易濾網。
+    er_length: int = 20            # 效率比計算長度
+    er_threshold: float = 0.5      # 效率比進場門檻（多 > +eff、空 < -eff）
+    #  AntiFrequency（去除頻繁交易）：最近 N 根內最多進場 M 次，降摩擦。
+    use_antifreq: bool = True
+    antifreq_range_bars: int = 200
+    antifreq_max_trades: int = 3
+
+    # ---- 交易型態：intraday（日內，不留倉）或 swing（波段，會留倉）---- #
+    #  swing 模式：關閉收盤前強制平倉與每盤出手上限，改由 AntiFrequency 控頻；
+    #  ⚠️ 留倉策略與「單日 −2890」天生衝突，swing 下 daily_max_loss_twd 請調大或設 0 停用。
+    trading_style: str = "intraday"
+
+    # ---- 風控：絕對停損（當日累計虧損達此金額立刻斷路器；0=停用）------ #
     daily_max_loss_twd: float = 2_890.0
 
     # ---- 單筆停損（點）：超過即出場，保護單一部位 -------------------- #
@@ -181,12 +195,12 @@ class Config:
             raise ValueError(f"未知的下單契約: {self.order_symbol}")
         if self.signal_symbol not in CONTRACT_SPECS:
             raise ValueError(f"未知的訊號契約: {self.signal_symbol}")
-        if self.daily_max_loss_twd <= 0:
-            raise ValueError("daily_max_loss_twd 必須為正數")
+        if self.daily_max_loss_twd < 0:
+            raise ValueError("daily_max_loss_twd 不可為負（0=停用斷路器）")
         if self.order_quantity < 1:
             raise ValueError("order_quantity 至少 1 口")
-        # 單筆最大虧損不應大於當日斷路器，否則斷路器形同虛設。
-        if self.per_trade_stop_twd() > self.daily_max_loss_twd:
+        # 單筆最大虧損不應大於當日斷路器，否則斷路器形同虛設（斷路器停用時跳過）。
+        if self.daily_max_loss_twd > 0 and self.per_trade_stop_twd() > self.daily_max_loss_twd:
             raise ValueError(
                 f"單筆停損金額 {self.per_trade_stop_twd():.0f} 已超過當日斷路器 "
                 f"{self.daily_max_loss_twd:.0f}，請調小 per_trade_stop_points 或口數。"
