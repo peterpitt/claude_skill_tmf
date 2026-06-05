@@ -66,6 +66,34 @@ class SessionManager:
             return close
         return None
 
+    def session_open_dt(self, dt: Optional[datetime] = None) -> Optional[datetime]:
+        """目前時段的開盤時間（datetime）。非交易時段回 None。"""
+        dt = dt or self.now()
+        sess = self.current_session(dt)
+        if sess == SessionType.DAY:
+            return dt.replace(
+                hour=self.cfg.day_open.hour, minute=self.cfg.day_open.minute,
+                second=0, microsecond=0,
+            )
+        if sess == SessionType.NIGHT:
+            opn = dt.replace(
+                hour=self.cfg.night_open.hour, minute=self.cfg.night_open.minute,
+                second=0, microsecond=0,
+            )
+            # 凌晨段（< 05:00）的夜盤開盤是『前一日』15:00。
+            if dt.time() < self.cfg.night_close:
+                opn = opn - timedelta(days=1)
+            return opn
+        return None
+
+    def minutes_since_open(self, dt: Optional[datetime] = None) -> Optional[float]:
+        """距離本時段開盤的分鐘數；非交易時段回 None。"""
+        dt = dt or self.now()
+        opn = self.session_open_dt(dt)
+        if opn is None:
+            return None
+        return (dt - opn).total_seconds() / 60.0
+
     def in_force_close_window(self, dt: Optional[datetime] = None) -> bool:
         """是否已進入收盤前強制平倉時間窗。"""
         dt = dt or self.now()

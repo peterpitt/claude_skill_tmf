@@ -23,6 +23,7 @@ from .position_book import PositionBook
 from .risk import CircuitBreaker
 from .session import SessionManager, SessionType
 from .strategy import Signal, Strategy
+from .strategy_orb import ORBStrategy, Signal as ORBSignal
 
 
 class Trader:
@@ -34,8 +35,21 @@ class Trader:
         self.broker = Broker(cfg, logger)
         self.agg = KBarAggregator(cfg.kbar_minutes, cfg.ma_period)
         self.fvd = FVDTracker(cfg.fvd_window_seconds)
-        self.strategy = Strategy(cfg, self.agg, self.fvd, logger)
         self.session = SessionManager(cfg)
+        # 策略選擇：ORB（完全 bar-based，可用 K 線回測）或舊版 MA+FVD。
+        if cfg.strategy == "orb":
+            self.orb = ORBStrategy(cfg, self.session, logger)
+            self.strategy = None
+        else:
+            self.orb = None
+            self.strategy = Strategy(cfg, self.agg, self.fvd, logger)
+        # ORB 動態出場狀態（進場時設定）
+        self._orb_dir = 0
+        self._orb_entry = 0.0
+        self._orb_stop = 0.0
+        self._orb_target = 0.0
+        self._orb_risk = 0.0
+        self._orb_best = 0.0
         self.risk = CircuitBreaker(
             cfg, self.book,
             flatten_all=self.flatten_all,
@@ -192,7 +206,11 @@ class Trader:
     #  訊號 → 下單
     # ------------------------------------------------------------------ #
     def _on_bar_close(self, closed, now=None) -> None:
-        self.log.info("5分K收盤: %s", closed)
+        self.log.info("%d分K收盤: %s", self.cfg.kbar_minutes, closed)
+        if self.orb is not None:
+            self._on_bar_close_orb(closed, now)
+            return
+
         signal = self.strategy.on_bar_close(closed, self.book.position, now)
         if signal == Signal.NONE:
             return
@@ -207,36 +225,66 @@ class Trader:
         if signal in (Signal.ENTER_LONG, Signal.ENTER_SHORT):
             self._try_enter(signal)
 
-    def _try_enter(self, signal: Signal) -> None:
+    def _on_bar_close_orb(self, closed, now) -> None:
+        """ORB 策略：bar 收盤決策（反向突破出場 / 開盤區間突破進場）。"""
+        now = now or self.session.now()
+        dec = self.orb.on_bar(closed, self.book.position, now)
+        if dec.signal == ORBSignal.EXIT and self.book.position != 0:
+            self.log.info("ORB 反向突破 → 出場（%s）。", dec.reason)
+            self.flatten_all("ORB_REVERSE")
+            return
+        if dec.signal in (ORBSignal.ENTER_LONG, ORBSignal.ENTER_SHORT):
+            sig = Signal.ENTER_LONG if dec.signal == ORBSignal.ENTER_LONG else Signal.ENTER_SHORT
+            if self._try_enter(sig):
+                # 進場成功 → 記錄動態停損/停利。
+                self._orb_dir = 1 if sig == Signal.ENTER_LONG else -1
+                entry = self.book.last_price or closed.close
+                self._orb_entry = entry
+                self._orb_stop = dec.stop_price if dec.stop_price else (
+                    entry - self._orb_dir * self.cfg.per_trade_stop_points)
+                self._orb_risk = abs(entry - self._orb_stop)
+                if self.cfg.orb_take_profit_R > 0 and self._orb_risk > 0:
+                    self._orb_target = entry + self._orb_dir * self._orb_risk * self.cfg.orb_take_profit_R
+                else:
+                    self._orb_target = 0.0
+                self._orb_best = entry
+                self.log.info("ORB 進場 dir=%d entry≈%.0f 停損=%.0f 停利=%.0f",
+                              self._orb_dir, entry, self._orb_stop, self._orb_target)
+
+    def _try_enter(self, signal: Signal) -> bool:
         now = self.session.now()
         if self.risk.tripped:
             self.log.warning("斷路器已觸發，今日禁止進場。")
-            return
+            return False
         if not self.session.can_enter(now):
             self.log.info(
                 "不進場：時段可進場=%s 出手=%d/%d",
                 self.session.is_tradable(now),
                 self.session.entries_used(now), self.cfg.max_entries_per_session,
             )
-            return
+            return False
         if self.book.position != 0:
             self.log.info("已有部位，不重複進場。")
-            return
+            return False
 
         with self._order_lock:
             # double-check（鎖內再確認，防止 callback 競態）。
             if self.book.position != 0 or self.risk.tripped or not self.session.can_enter(now):
-                return
+                return False
             action = "Buy" if signal == Signal.ENTER_LONG else "Sell"
             self.broker.place_market(action, self.cfg.order_quantity, range_market=True,
                                      reason=f"ENTRY_{signal.name}")
             n = self.session.record_entry(now)
             self.log.info("本時段第 %d/%d 次進場（%s）。",
                           n, self.cfg.max_entries_per_session, action)
+            return True
 
     def _check_per_trade_stop(self, price: float) -> None:
-        """單筆停損：未實現虧損超過設定點數即市價平倉。"""
+        """單筆出場：ORB 用動態停損/停利/移動停損；MA 版用固定點數停損。"""
         if self.book.position == 0:
+            return
+        if self.orb is not None:
+            self._check_orb_exit(price)
             return
         loss_twd = self.book.unrealized_pnl_twd(price)
         if loss_twd <= -self.cfg.per_trade_stop_twd():
@@ -246,12 +294,40 @@ class Trader:
             )
             self.flatten_all("PER_TRADE_STOP")
 
+    def _check_orb_exit(self, price: float) -> None:
+        """ORB 即時出場：停損、停利、達 1R 後移動停損鎖獲利。"""
+        d = self._orb_dir
+        if d == 0 or price <= 0:
+            return
+        # 移動停損：價格朝有利方向走，達 1R 後以「最佳價 ∓ 1R」追蹤鎖獲利。
+        if self.cfg.orb_use_trailing and self._orb_risk > 0:
+            if d > 0:
+                self._orb_best = max(self._orb_best, price)
+                if self._orb_best - self._orb_entry >= self._orb_risk:
+                    self._orb_stop = max(self._orb_stop, self._orb_best - self._orb_risk)
+            else:
+                self._orb_best = min(self._orb_best, price)
+                if self._orb_entry - self._orb_best >= self._orb_risk:
+                    self._orb_stop = min(self._orb_stop, self._orb_best + self._orb_risk)
+        hit_stop = (d > 0 and price <= self._orb_stop) or (d < 0 and price >= self._orb_stop)
+        hit_tgt = self._orb_target > 0 and (
+            (d > 0 and price >= self._orb_target) or (d < 0 and price <= self._orb_target))
+        if hit_stop:
+            self.log.warning("【ORB 停損】價 %.0f 觸及停損 %.0f，平倉。", price, self._orb_stop)
+            self._orb_dir = 0
+            self.flatten_all("ORB_STOP")
+        elif hit_tgt:
+            self.log.info("【ORB 停利】價 %.0f 觸及停利 %.0f，平倉。", price, self._orb_target)
+            self._orb_dir = 0
+            self.flatten_all("ORB_TARGET")
+
     # ------------------------------------------------------------------ #
     #  平倉
     # ------------------------------------------------------------------ #
     def flatten_all(self, reason: str) -> None:
         """市價平掉所有部位（被風控、停損、收盤、關閉等共用）。"""
         with self._order_lock:
+            self._orb_dir = 0  # 清掉 ORB 動態出場狀態，避免殘留停損誤觸
             pos = self.book.position
             if pos == 0:
                 return
@@ -283,8 +359,13 @@ class Trader:
                       c.order_symbol, c.order_spec.name_zh,
                       c.order_spec.point_value, c.order_quantity)
         self.log.info(" 本金            : %d TWD", c.account_capital_twd)
-        self.log.info(" 策略            : %d分K %dMA + FVD(±%d/%ds)",
-                      c.kbar_minutes, c.ma_period, c.fvd_entry_threshold, c.fvd_window_seconds)
+        if c.strategy == "orb":
+            self.log.info(" 策略            : ORB 開盤區間突破 %d分K OR%d分 buf%.0f VWAP=%s TP%.1fR trail=%s",
+                          c.kbar_minutes, c.or_minutes, c.orb_breakout_buffer_points,
+                          c.orb_use_vwap_filter, c.orb_take_profit_R, c.orb_use_trailing)
+        else:
+            self.log.info(" 策略            : %d分K %dMA + FVD(±%d/%ds)",
+                          c.kbar_minutes, c.ma_period, c.fvd_entry_threshold, c.fvd_window_seconds)
         self.log.info(" 單筆停損        : %.0f 點 (≈%.0f TWD)",
                       c.per_trade_stop_points, c.per_trade_stop_twd())
         self.log.info(" 當日斷路器      : 累計虧損 %.0f TWD", c.daily_max_loss_twd)
