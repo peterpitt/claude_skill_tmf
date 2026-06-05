@@ -43,11 +43,19 @@ def trading_day_hl(bars: List[Bar], sm: SessionManager) -> Dict[str, Tuple[float
 
 def run(bars: List[Bar], cfg: Config, pv: int, *, ref="openrange",
         day_cutoff=time(10, 0), night_cutoff=time(22, 0),
-        stop_points=40.0, slippage=1.0, cost=15.0) -> Result:
+        stop_points=40.0, slippage=1.0, cost=15.0,
+        exit_mode="breakout_stop", trail_keep=2.0 / 3.0,
+        trail_act_day=89.0, trail_act_night=61.0, init_stop=40.0) -> Result:
+    """exit_mode:
+        breakout_stop = 對向突破 / 固定停損 / 強平 / −2890
+        trail         = 獲利達門檻後啟動『回吐至峰值×trail_keep 出場』的移動停利，
+                        啟動前用 init_stop 固定停損；另有強平 / −2890。
+    """
     sm = SessionManager(cfg)
     res = Result()
     realized = 0.0; peak = 0.0
     pos = 0; entry = 0.0; stop = 0.0
+    peak_pts = 0.0; activated = False  # 移動停利狀態
 
     day_keys = sorted({sm._trading_day_key(b.start) for b in bars})
     prev_key = {day_keys[i]: day_keys[i - 1] for i in range(1, len(day_keys))}
@@ -75,11 +83,12 @@ def run(bars: List[Bar], cfg: Config, pv: int, *, ref="openrange",
         pos = 0
 
     def open_at(price, d):
-        nonlocal pos, entry, stop, realized
+        nonlocal pos, entry, stop, realized, peak_pts, activated
         entry = price + (slippage if d > 0 else -slippage)
         pos = d
         realized -= cost
         stop = entry - d * stop_points if stop_points > 0 else 0.0
+        peak_pts = 0.0; activated = False
 
     def cutoff_for(sess, b):
         return day_cutoff if sess == SessionType.DAY else night_cutoff
@@ -130,10 +139,33 @@ def run(bars: List[Bar], cfg: Config, pv: int, *, ref="openrange",
         if ref == "openrange" and before_cutoff:
             ref_hi = max(ref_hi, b.high); ref_lo = min(ref_lo, b.low)
 
-        # 盤中停損
-        if pos != 0 and stop:
-            if (pos > 0 and b.low <= stop) or (pos < 0 and b.high >= stop):
-                close_at(stop)
+        # 盤中出場：移動停利(trail) 或 固定停損(breakout_stop)
+        if pos != 0:
+            if exit_mode == "trail":
+                act = trail_act_day if sess == SessionType.DAY else trail_act_night
+                if pos > 0:
+                    peak_pts = max(peak_pts, b.high - entry)      # 先更新峰值(保守)
+                    if peak_pts >= act:
+                        activated = True
+                    if activated:                                  # 回吐至 峰值×keep 出場
+                        trail_price = entry + peak_pts * trail_keep
+                        if b.low <= trail_price:
+                            close_at(trail_price)
+                    elif init_stop > 0 and b.low <= entry - init_stop:
+                        close_at(entry - init_stop)
+                else:
+                    peak_pts = max(peak_pts, entry - b.low)
+                    if peak_pts >= act:
+                        activated = True
+                    if activated:
+                        trail_price = entry - peak_pts * trail_keep
+                        if b.high >= trail_price:
+                            close_at(trail_price)
+                    elif init_stop > 0 and b.high >= entry + init_stop:
+                        close_at(entry + init_stop)
+            elif stop:
+                if (pos > 0 and b.low <= stop) or (pos < 0 and b.high >= stop):
+                    close_at(stop)
 
         # 斷路器
         if not locked:
@@ -160,10 +192,10 @@ def run(bars: List[Bar], cfg: Config, pv: int, *, ref="openrange",
                 pending = ("enter", 1)
             elif b.close < ref_lo:
                 pending = ("enter", -1)
-        # 對向突破出場
-        elif pos > 0 and b.close < ref_lo:
+        # 對向突破出場（trail 模式不用，交給移動停利）
+        elif exit_mode != "trail" and pos > 0 and b.close < ref_lo:
             pending = ("exit",)
-        elif pos < 0 and b.close > ref_hi:
+        elif exit_mode != "trail" and pos < 0 and b.close > ref_hi:
             pending = ("exit",)
 
     if pos != 0:
@@ -187,7 +219,12 @@ def main():
     ap = argparse.ArgumentParser(description="時間過濾型前高/前低突破（日內+−2890）回測")
     ap.add_argument("--csv", default=DEFAULT_CSV)
     ap.add_argument("--symbol", default="TMF", choices=list(CONTRACT_SPECS.keys()))
-    ap.add_argument("--stop", type=float, default=40.0, help="單筆停損點數(0=不設,只靠強平/−2890)")
+    ap.add_argument("--stop", type=float, default=40.0, help="固定停損點數(breakout_stop 模式用)")
+    ap.add_argument("--exit", default="both", choices=["breakout_stop", "trail", "both"],
+                    help="出場法：固定停損 / 移動停利(回吐峰值1/3) / 兩者比較")
+    ap.add_argument("--act-day", type=float, default=89.0, help="早盤移動停利啟動獲利(點)")
+    ap.add_argument("--act-night", type=float, default=61.0, help="夜盤移動停利啟動獲利(點)")
+    ap.add_argument("--init-stop", type=float, default=40.0, help="移動停利啟動前的固定停損(點)")
     ap.add_argument("--cost", type=float, default=15.0)
     ap.add_argument("--slippage", type=float, default=1.0)
     args = ap.parse_args()
@@ -201,18 +238,24 @@ def main():
     print(f"5分K {len(bars):,} 根  契約 {args.symbol}({pv}元/點)  停損 {args.stop}點  成本 {args.cost}/邊 滑價 {args.slippage}")
     print(f"規則：早盤 10:00 後、夜盤 22:00 後突破進場；不留倉、收盤前 15 分強平、單日 −{cfg.daily_max_loss_twd:.0f} 鎖單；早夜各最多 {cfg.max_entries_per_session} 次。")
 
-    for ref in ("openrange", "prevday"):
-        label = "開盤區間(早08:45-10:00/夜15:00-22:00)" if ref == "openrange" else "前一交易日高低"
-        overall = run(bars, cfg, pv, ref=ref, stop_points=args.stop,
-                      slippage=args.slippage, cost=args.cost)
-        py = {y: run(yb, cfg, pv, ref=ref, stop_points=args.stop,
-                     slippage=args.slippage, cost=args.cost) for y, yb in by_year(bars).items()}
-        pos = sum(1 for r in py.values() if r.net_pnl > 0)
-        print(f"\n{'='*78}\n  參考＝{label}\n{'='*78}")
-        print(f"  全期間 {fmt(overall)}")
-        for y, r in py.items():
-            print(f"    {y}  {fmt(r)}")
-        print(f"  獲利年數：{pos}/{len(py)}")
+    modes = ["breakout_stop", "trail"] if args.exit == "both" else [args.exit]
+    kw = dict(slippage=args.slippage, cost=args.cost, init_stop=args.init_stop,
+              trail_act_day=args.act_day, trail_act_night=args.act_night)
+    for em in modes:
+        emlabel = ("固定停損" if em == "breakout_stop"
+                   else f"移動停利(早{args.act_day:.0f}/夜{args.act_night:.0f}啟動,回吐至峰值2/3)")
+        print(f"\n\n############ 出場法：{emlabel} ############")
+        for ref in ("openrange", "prevday"):
+            label = "開盤區間(早08:45-10:00/夜15:00-22:00)" if ref == "openrange" else "前一交易日高低"
+            overall = run(bars, cfg, pv, ref=ref, stop_points=args.stop, exit_mode=em, **kw)
+            py = {y: run(yb, cfg, pv, ref=ref, stop_points=args.stop, exit_mode=em, **kw)
+                  for y, yb in by_year(bars).items()}
+            pos = sum(1 for r in py.values() if r.net_pnl > 0)
+            print(f"\n{'='*78}\n  參考＝{label}\n{'='*78}")
+            print(f"  全期間 {fmt(overall)}")
+            for y, r in py.items():
+                print(f"    {y}  {fmt(r)}")
+            print(f"  獲利年數：{pos}/{len(py)}")
 
     print("\n判讀：『斷路 N 天』>0 代表 −2890 真的會被觸發（單日確實守得住 2890）。"
           "重點仍是『扣成本後逐年是否為正』。")
