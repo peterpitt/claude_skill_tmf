@@ -1,0 +1,69 @@
+//@version=5
+strategy(title="@課程範例－CDP指標交易模組（逆勢進場、順勢進場）｜量化通", shorttitle="CDP範例策略｜量化通", //圖表上顯示的短名稱
+overlay = true, //true疊圖，false下方單獨視窗 format=format.price, //format.price輸出格式為價格 precision=2, //顯示小數點後兩位
+default_qty_type=strategy.cash, initial_capital=10000, //初始本金1萬 default_qty_value=10000, commission_value=0.04 ) //每次進場1萬，手續費單邊萬分之
+4
+
+//start前置設定
+
+strategy.cancel_all() //每次收K都清空委託單
+//常用函數
+MP = strategy.opentrades.size(strategy.opentrades -1)>0?1:strategy.opentrades.size(strategy.opentrades - 1)<0?-1:0
+//end前置設定
+
+
+//CDP指標計算
+//HighD(0)
+var TodayBarIndex=0 var PDH=0.0
+var PDC=0.0 var PDL=0.0
+TodayBarIndex:=TodayBarIndex+1 if session.isfirstbar
+TodayBarIndex:=1
+
+HH = ta.highest(TodayBarIndex)
+LL = ta.lowest(TodayBarIndex)
+if session.isfirstbar
+PDH:=HH[1]
+PDC:=close[1]
+PDL:=LL[1]
+
+CDP = (PDH[1]+PDL[1]+2*PDC[1])/4 AH = CDP+(PDH[1]-PDL[1])
+
+NH = 2*CDP-PDL[1]
+NL = 2*CDP-PDH[1]
+AL = CDP-(PDH[1]-PDL[1])
+type = input.string("逆勢進場", options = ["逆勢進場","順勢進場"])
+
+//進場條件
+MaxUseBars = 1+math.max(10,1)//每個策略要重新設定 var LongEntry = false
+var ShortEntry = false
+
+if type=="逆勢進場"
+LongEntry := bar_index>MaxUseBars and MP<=0 and ta.crossover(close,NL)
+ShortEntry := bar_index>MaxUseBars and MP>=0 and ta.crossunder(close,NH)
+else if type=="順勢進場"
+LongEntry := bar_index>MaxUseBars and MP<=0 and ta.crossover(close,AH)
+ShortEntry := bar_index>MaxUseBars and MP>=0 and ta.crossunder(close,AL)
+
+//多單委託
+if LongEntry
+strategy.entry("LE", strategy.long) //多單進場
+
+//空單委託
+if ShortEntry
+strategy.entry("SE", strategy.short) //空單進場
+
+//上底色，持有多單底色綠色，持有空單底色紅色
+colorBG = strategy.opentrades.size(strategy.opentrades-1)>0 ? color.new(color.green,80) :
+strategy.opentrades.size(strategy.opentrades-1)<0 ? color.new(color.red,80)
+:
+color.new(color.gray,100)
+bgcolor(colorBG, force_overlay=true)
+
+//繪圖
+plot(AH,"AH",color = color.maroon)
+plot(NH,"NH",color = color.red)
+plot(CDP,"CDP",color = color.blue)
+plot(NL,"NL",color = color.green)
+plot(AL,"AL",color = color.rgb(10, 109, 13))
+
+

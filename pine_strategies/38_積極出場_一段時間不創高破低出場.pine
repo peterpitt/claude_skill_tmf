@@ -1,0 +1,51 @@
+//@version=5
+strategy("@課程範例－積極出場：一段時間不創高破低出場｜量化通", overlay = false, //true疊圖，false下方單獨視窗 format=format.price, //format.price輸出格式為價格 precision=2, //顯示小數點後兩位
+default_qty_type=strategy.cash, initial_capital=10000, //初始本金1萬 default_qty_value=10000, commission_value=0.04 ) //每次進場1萬，手續費單邊萬分之
+4
+
+//start前置設定
+
+strategy.cancel_all() //每次收K都清空委託單
+//常用函數
+MP = strategy.opentrades.size(strategy.opentrades -1)>0?1:strategy.opentrades.size(strategy.opentrades - 1)<0?-1:0
+//end前置設定
+
+
+//參數設定
+SmallLen = 20//input.int(20, "短均線的長度")
+BigLen = 50//input.int(50, "長均線的長度")
+
+//計算短均線與長均線
+SmallMA = ta.sma(close, SmallLen)
+BigMA = ta.sma(close, BigLen)
+
+MaxUseBars = 1+math.max(SmallLen,BigLen,1)//每個策略要重新設定 longCondition = bar_index>MaxUseBars and MP<=0 and ta.crossover(SmallMA, BigMA)
+
+//進場條件執行
+if longCondition
+strategy.entry("LE", strategy.long)
+
+//出場條件執行
+Len = input.int(20,"時間K棒數")
+TimePer = input.float(0.5,"多久的時間比例未創新高/創新低" ,maxval = 1.00)
+EntryPrice = strategy.opentrades.entry_price(strategy.opentrades - 1) //未平倉的進場價
+
+LB = ta.lowestbars(low, Len)*-1 //儲存過去一段時間內最低價的K棒出現在過去第幾根K，1代表前一根，3代表前3根
+HB = ta.highestbars(high, Len)*-1 //儲存過去一段時間內最高價的K棒出現在過去第幾根K， 1代表前一根，3代表前3根
+
+if HB>Len*TimePer strategy.close("LE", "LX")
+
+//上底色，持有多單底色綠色，持有空單底色紅色
+colorBG = strategy.opentrades.size(strategy.opentrades-1)>0 ? color.new(color.green,80) :
+strategy.opentrades.size(strategy.opentrades-1)<0 ? color.new(color.red,80)
+:
+color.new(color.gray,100)
+bgcolor(colorBG, force_overlay=true)
+
+plot(SmallMA,"SmallMA",color.yellow,force_overlay = true)
+plot(BigMA,"BigMA",color.blue,force_overlay = true)
+plot(HB,"SLPrice",color.red)
+hline(Len*TimePer)
+//plot(LB,"PTPrice",color.green)
+
+

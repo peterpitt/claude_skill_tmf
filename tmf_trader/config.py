@@ -69,7 +69,41 @@ class Config:
     #  進場要求 FVD 與均線方向一致，且絕對值需 >= 此門檻（口/張）。
     fvd_entry_threshold: int = 30
 
-    # ---- 風控：絕對停損（當日累計虧損達此金額立刻斷路器）------------- #
+    # ---- 趨勢品質濾網（降低盤整假突破的洗損）------------------------- #
+    #  收盤需『站穩』均線：突破幅度至少這麼多點才算數（0=不啟用）。
+    entry_ma_buffer_points: float = 3.0
+    #  只順著均線斜率方向進場：多單要 MA 上揚、空單要 MA 下彎。
+    use_ma_slope_filter: bool = True
+    ma_slope_lookback: int = 3   # 以幾根前的 MA 比較算斜率
+
+    # ---- ORB 開盤區間突破策略（早/夜盤通用，完全可用 K 線回測）------- #
+    #  策略選擇："orb" 或 "ma_fvd"（舊版需逐筆內外盤，K線無法完整回測）。
+    strategy: str = "orb"
+    #  orb_mode："breakout"=追突破（趨勢）；"fade"=逆勢反手（賭開盤區間假突破回測）。
+    #  實測 TXF 日內：突破常失敗、區間回歸 → 預設改用 fade。
+    orb_mode: str = "fade"
+    or_minutes: int = 30                 # 開盤後幾分鐘建立開盤區間
+    orb_breakout_buffer_points: float = 2.0   # 突破需超出區間多少點才算數
+    orb_use_vwap_filter: bool = True     # 只順著當盤 VWAP 方向進場
+    orb_max_or_points: float = 120.0     # 開盤區間過寬則略過（0=不限）
+    orb_take_profit_R: float = 1.8       # 停利為風險(R)的幾倍（0=不停利，只靠出場/強平）
+    orb_use_trailing: bool = True        # 達 1R 後啟用移動停損(鎖獲利)
+
+    # ---- 高效波段（Kaufman 效率比）波段策略 strategy="efficiency" ------ #
+    #  真實資料逐年回測最佳：30 分 K、效率比 + 去除頻繁交易濾網。
+    er_length: int = 20            # 效率比計算長度
+    er_threshold: float = 0.5      # 效率比進場門檻（多 > +eff、空 < -eff）
+    #  AntiFrequency（去除頻繁交易）：最近 N 根內最多進場 M 次，降摩擦。
+    use_antifreq: bool = True
+    antifreq_range_bars: int = 200
+    antifreq_max_trades: int = 3
+
+    # ---- 交易型態：intraday（日內，不留倉）或 swing（波段，會留倉）---- #
+    #  swing 模式：關閉收盤前強制平倉與每盤出手上限，改由 AntiFrequency 控頻；
+    #  ⚠️ 留倉策略與「單日 −2890」天生衝突，swing 下 daily_max_loss_twd 請調大或設 0 停用。
+    trading_style: str = "intraday"
+
+    # ---- 風控：絕對停損（當日累計虧損達此金額立刻斷路器；0=停用）------ #
     daily_max_loss_twd: float = 2_890.0
 
     # ---- 單筆停損（點）：超過即出場，保護單一部位 -------------------- #
@@ -128,8 +162,33 @@ class Config:
 
     # ------------------------------------------------------------------ #
     @classmethod
-    def from_env(cls) -> "Config":
-        """從環境變數載入可覆寫的欄位。"""
+    def tmf_swing(cls) -> "Config":
+        """最終上線設定：TMF 微台、1 口、高效波段(30分)留倉版。
+
+        這是用真實 K 線逐年回測後挑出的『扣成本後有逐年邊際』組合：
+          - 下單契約 TMF（NT$10/點），固定 1 口（資金保護的第一道防線）。
+          - 策略 efficiency（Kaufman 效率比）、30 分 K、去除頻繁交易濾網。
+          - swing 留倉：關閉收盤前強平與每盤出手上限。
+          - 單日斷路器停用（=0）：日內 −2890 與波段留倉天生衝突；風險改由
+            『1 口固定部位 + 策略自身出場(效率比跌破0)』控管。
+        """
+        c = cls()
+        c.order_symbol = "TMF"
+        c.order_quantity = 1
+        c.strategy = "efficiency"
+        c.trading_style = "swing"
+        c.kbar_minutes = 30
+        c.er_length = 20
+        c.er_threshold = 0.5
+        c.use_antifreq = True
+        c.antifreq_range_bars = 200
+        c.antifreq_max_trades = 3
+        c.daily_max_loss_twd = 0.0
+        return c
+
+    @classmethod
+    def from_env(cls, base: "Config | None" = None) -> "Config":
+        """從環境變數載入可覆寫的欄位（base 給定時以它為基礎，否則用預設）。"""
 
         def _bool(name: str, default: bool) -> bool:
             v = os.getenv(name)
@@ -137,7 +196,7 @@ class Config:
                 return default
             return v.strip().lower() in ("1", "true", "yes", "y", "on")
 
-        cfg = cls()
+        cfg = base if base is not None else cls()
         cfg.dry_run = _bool("DRY_RUN", cfg.dry_run)
         cfg.simulation = _bool("SIMULATION", cfg.simulation)
         cfg.live_confirm = os.getenv("LIVE_TRADING_CONFIRM", cfg.live_confirm).strip()
@@ -161,12 +220,12 @@ class Config:
             raise ValueError(f"未知的下單契約: {self.order_symbol}")
         if self.signal_symbol not in CONTRACT_SPECS:
             raise ValueError(f"未知的訊號契約: {self.signal_symbol}")
-        if self.daily_max_loss_twd <= 0:
-            raise ValueError("daily_max_loss_twd 必須為正數")
+        if self.daily_max_loss_twd < 0:
+            raise ValueError("daily_max_loss_twd 不可為負（0=停用斷路器）")
         if self.order_quantity < 1:
             raise ValueError("order_quantity 至少 1 口")
-        # 單筆最大虧損不應大於當日斷路器，否則斷路器形同虛設。
-        if self.per_trade_stop_twd() > self.daily_max_loss_twd:
+        # 單筆最大虧損不應大於當日斷路器，否則斷路器形同虛設（斷路器停用時跳過）。
+        if self.daily_max_loss_twd > 0 and self.per_trade_stop_twd() > self.daily_max_loss_twd:
             raise ValueError(
                 f"單筆停損金額 {self.per_trade_stop_twd():.0f} 已超過當日斷路器 "
                 f"{self.daily_max_loss_twd:.0f}，請調小 per_trade_stop_points 或口數。"

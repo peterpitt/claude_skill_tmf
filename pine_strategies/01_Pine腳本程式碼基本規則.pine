@@ -1,0 +1,26 @@
+//@version=5
+strategy("@課程範例－Pine腳本程式碼基本規則｜量化通", overlay=true, margin_long=100, margin_short=100)
+
+//把參數拉出來，獨自設定
+SmallLen = input.int(14, "短均線的長度")
+BigLen = input.int(28, "長均線的長度")
+SourceMA = input.source(close, "均線的計算基準")
+
+//計算短均線與長均線
+SmallMA = ta.sma(SourceMA, SmallLen)
+BigMA = ta.sma(SourceMA, BigLen)
+
+//進場條件判斷
+longCondition = ta.crossover(SmallMA, BigMA)
+shortCondition = ta.crossunder(SmallMA, BigMA)
+
+//進場條件執行
+if (longCondition)
+strategy.entry("My Long Entry Id", strategy.long)
+
+if (shortCondition)
+strategy.entry("My Short Entry Id", strategy.short)
+
+and、or與not
+
+

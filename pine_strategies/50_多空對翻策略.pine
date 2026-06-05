@@ -1,0 +1,79 @@
+//@version=5
+strategy(title="@課程範例－多空對翻策略｜量化通", shorttitle="多空對翻策略｜量化通", //圖表上顯示的短名稱 overlay = true, //true疊圖，false下方單獨視窗 format=format.price, //format.price輸出格式為價格 precision=2, //顯示小數點後兩位
+default_qty_type=strategy.cash, initial_capital=10000, //初始本金1萬 default_qty_value=10000, commission_value=0.04 ) //每次進場1萬，手續費單邊萬分之
+4
+
+//start前置設定
+
+strategy.cancel_all() //每次收K都清空委託單
+//常用函數
+MP = strategy.opentrades.size(strategy.opentrades -1)>0?1:strategy.opentrades.size(strategy.opentrades - 1)<0?-1:0 EntryPrice = strategy.opentrades.entry_price(strategy.opentrades - 1)
+BarsSinceEntry = bar_index -strategy.opentrades.entry_bar_index(strategy.opentrades - 1)
+//end前置設定
+
+
+//指標計算
+Len = input.int(20, "長度")
+Gap = input.float(1.0, "波動閥值")
+mult1 = input.float(2.0, "倍數")
+
+atr1 = ta.atr(Len)*mult1
+
+//進場條件
+MaxUseBars = 1+math.max(Len,1)//每個策略要重新設定 LongEntry = bar_index>MaxUseBars and MP<=0 ShortEntry = bar_index>MaxUseBars and MP>=0
+
+//多單委託
+if LongEntry
+if close>close[1]+atr1 and (close[1]-open[1])/open[1]>Gap*0.01 strategy.entry("LE_ATR收盤", strategy.long)
+
+else if (close[1]-open[1])/open[1]>Gap*0.01 strategy.entry("LE_大波動等突破", strategy.long, stop=high)
+
+//空單委託
+if ShortEntry
+if close<close[1]-atr1 and (open[1]-close[1])/open[1]>Gap*0.01 strategy.entry("SE_ATR收盤", strategy.short)
+else if (open[1]-close[1])/open[1]>Gap*0.01 strategy.entry("SE_大波動等突破", strategy.short, stop=low)
+
+
+//出場條件執行
+TPGap = input.float(10.00,"獲利超過N%啟動")
+PBPer = input.float(50.00,"拉回%數")
+
+HH = ta.highest(high,math.max(nz(BarsSinceEntry),1))
+LL = ta.lowest(low,math.max(nz(BarsSinceEntry),1))
+
+var HighSinceEntry = 0.00 var LowSinceEntry = 0.00 if BarsSinceEntry>0
+HighSinceEntry := HH LowSinceEntry := LL
+else
+HighSinceEntry := -999999.99
+LowSinceEntry := 999999.99
+
+var PBPrice = 0.00 OverProfit = if MP>0
+(HighSinceEntry-EntryPrice)>EntryPrice*(TPGap*0.01)
+else if MP<0
+(EntryPrice-LowSinceEntry)>EntryPrice*(TPGap*0.01)
+else
+false
+
+if MP>0 and OverProfit
+PBPrice := HighSinceEntry-(HighSinceEntry-EntryPrice)*(PBPer*0.01)
+else if MP<0 and OverProfit
+PBPrice := LowSinceEntry+(EntryPrice-LowSinceEntry)*(PBPer*0.01)
+else if OverProfit==false
+if MP>0
+PBPrice := EntryPrice*(1-TPGap*0.01)
+if MP<0
+PBPrice := EntryPrice*(1+TPGap*0.01)
+
+if MP>0
+strategy.exit("LX", stop=PBPrice)
+if MP<0
+strategy.exit("SX", stop=PBPrice)
+
+//上底色，持有多單底色綠色，持有空單底色紅色
+colorBG = strategy.opentrades.size(strategy.opentrades-1)>0 ? color.new(color.green,80) :
+strategy.opentrades.size(strategy.opentrades-1)<0 ? color.new(color.red,80)
+:
+color.new(color.gray,100)
+bgcolor(colorBG, force_overlay=true)
+
+

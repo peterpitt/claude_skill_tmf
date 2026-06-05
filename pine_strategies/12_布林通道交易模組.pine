@@ -1,0 +1,58 @@
+//@version=5
+strategy(title="@課程範例－布林通道交易模組（逆勢穿越、順勢突破）｜量化通", shorttitle="布林通道範例策略｜量化通", //圖表上顯示的短名稱
+overlay = true, //true疊圖，false下方單獨視窗 format=format.price, //format.price輸出格式為價格 precision=2, //顯示小數點後兩位
+default_qty_type=strategy.cash, initial_capital=10000, //初始本金1萬 default_qty_value=10000, commission_value=0.04 ) //每次進場1萬，手續費單邊萬分之
+4
+
+//start前置設定
+
+strategy.cancel_all() //每次收K都清空委託單
+//常用函數
+MP = strategy.opentrades.size(strategy.opentrades -1)>0?1:strategy.opentrades.size(strategy.opentrades - 1)<0?-1:0
+//end前置設定
+
+
+//布林通道計算
+Len = input.int(20, minval=1, maxval=200, title="長度", group="布林通道參數設定 ")
+mult = input.float(2.0, minval=0.1, maxval=10, title="標準差倍數", group="布林
+通道參數設定")
+type = input.string("逆勢穿越", options = ["逆勢穿越","順勢突破"])
+
+MA = ta.sma(close, Len)
+Std = mult * ta.stdev(close, Len)
+upper = MA + Std
+lower = MA - Std
+
+//進場條件
+MaxUseBars = 1+math.max(Len,1)//每個策略要重新設定 var LongEntry = false
+var ShortEntry = false
+
+if type=="逆勢穿越"
+LongEntry := bar_index>MaxUseBars and MP<=0 and ta.crossover(close,lower)
+
+ta.crossunder(close,upper)
+else if type=="順勢突破"
+LongEntry := bar_index>MaxUseBars and MP<=0 and ta.crossover(close,upper)
+ShortEntry := bar_index>MaxUseBars and MP>=0 and ta.crossunder(close,lower)
+
+//多單委託
+if LongEntry
+strategy.entry("LE", strategy.long) //多單進場
+
+//空單委託
+if ShortEntry
+strategy.entry("SE", strategy.short) //空單進場
+
+//上底色，持有多單底色綠色，持有空單底色紅色
+colorBG = strategy.opentrades.size(strategy.opentrades-1)>0 ? color.new(color.green,80) :
+strategy.opentrades.size(strategy.opentrades-1)<0 ? color.new(color.red,80)
+:
+color.new(color.gray,100)
+bgcolor(colorBG, force_overlay=true)
+
+//繪圖
+plot(MA, "均線", color=color.gray)
+p1 = plot(upper, "上通道", color.red)
+p2 = plot(lower, "下通道", color.green)
+
+

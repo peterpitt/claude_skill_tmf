@@ -31,13 +31,63 @@
 
 ## 策略邏輯
 
-- **訊號分離**：訂閱 **TXF** 即時 Tick + BidAsk，自行合成 **5 分 K 線**。
-- **進場條件**（每根 5 分 K 收盤評估一次，避免盤中假突破）：
-  - 多：收盤**由下而上突破 21MA**，且 **FVD（內外盤委託動能）≥ +門檻**。
-  - 空：收盤**由上而下跌破 21MA**，且 **FVD ≤ −門檻**。
-  - **FVD** = 最近 N 秒「外盤成交量 − 內盤成交量」的累積（`tick_type` 1=外盤/2=內盤）。
-- **出場**：均線反向、單筆停損（預設 20 點）、或收盤前強制平倉。
-- **實際下單**：訊號確認後對 **TMF/MXF 當月**送出**範圍市價（IOC）**，平倉用市價確保出得掉。
+本系統支援三套策略（`config.py` 的 `strategy` 切換）。
+
+> 📊 **用你真實的 `txf_kbars.csv` 逐年回測後（見 [`BACKTEST.md`](BACKTEST.md)）的結論：**
+> 日內高頻策略（ORB/箱型/CDP）**每年皆虧**——摩擦成本一年就吃掉整副本金；
+> 唯有**低頻波段**訊號扣成本後有逐年穩定邊際。故新增並推薦下列波段策略。
+
+### 🏆 推薦：高效波段（`strategy="efficiency"` + `trading_style="swing"`）
+
+- **為何選它**：真實資料回測中**少數逐年穩定獲利**者。30 分 K、Kaufman 效率比，
+  搭配「去除頻繁交易」濾網，恢復係數 2.9、6/7 年正報酬、最大回落 ≈ 本金 30%。
+- **效率比 ER** = N 根直線位移 ÷ N 根總路徑長；接近 ±1＝順暢趨勢，接近 0＝盤整。
+- **進場**：ER 由下穿越 +0.5 → 做多；由上穿越 −0.5 → 做空（過 AntiFrequency 濾網）。
+- **出場**：ER 跌破/突破 0 即順勢出場（**刻意不加硬停損**——回測證實硬停損會打斷順勢、反而變差）。
+- **⚠️ 會留倉（隔夜）**：這正是擺脫日內摩擦的方法，但與「絕不留倉、單日 −2890」衝突。
+  `swing` 模式會**自動關閉**收盤前強平與每盤出手上限；**請把 `daily_max_loss_twd` 調大或設 0**
+  （否則 −2890 會頻繁中斷波段持倉）。風控改用部位/口數控管。
+- **回測 / 比較**：
+  - `python swing_backtest.py --csv "你的txf_kbars.csv" --symbol TMF`（多策略 × 多週期逐年）
+  - `python combo_backtest.py --csv "你的txf_kbars.csv" --symbol TMF`（高效波段 × 濾網 15m vs 30m）
+
+**啟用範例**（改 `tmf_trader/config.py`）：
+```python
+strategy = "efficiency"
+trading_style = "swing"
+kbar_minutes = 30
+er_length = 20
+er_threshold = 0.5
+use_antifreq = True            # 去除頻繁交易濾網（回測中唯一明確有益者）
+daily_max_loss_twd = 0         # 波段：停用單日斷路器（或設一個夠大的安全值）
+```
+
+### 🟡 ORB 開盤區間突破（`strategy="orb"`，日內，已證實逐年虧損，僅供研究）
+
+- **為何選它**：邊際**完全來自 K 線**（不需逐筆內外盤 FVD），所以你手上的
+  `txf_kbars.csv` 能 **100% 回測驗證**；且 ORB 是指數期貨少數有長期實證支持的日內邊際，
+  天生符合「早/夜盤各自開盤、每盤 4 次」的結構。
+- **開盤區間**：每盤開盤後 `or_minutes`（預設 30）分鐘的高低 = OR_high / OR_low。
+- **進場**（每根 5 分 K 收盤評估）：
+  - 多：收盤 > OR_high + `orb_breakout_buffer_points`，且（開啟時）站上當盤 **VWAP**、區間不過寬。
+  - 空：收盤 < OR_low − buffer，且收盤跌破 VWAP。
+- **出場**：初始停損取「區間另一側」與「固定點數」較近者；停利 `orb_take_profit_R`（預設 1.8R）；
+  達 1R 後移動停損鎖獲利；反向突破出場；收盤前強制平倉。
+- **找最佳參數**：用你的真實 K 線跑
+  `python orb_backtest.py --csv "你的txf_kbars.csv" --symbol TMF --optimize`，
+  會輸出**逐年**績效 + grid search 最佳風報比參數。
+
+### 🟡 舊版：21MA + FVD（`strategy="ma_fvd"`，需逐筆內外盤）
+
+- 多：收盤由下而上突破 21MA 且 FVD ≥ +門檻；空：反之。**FVD 需逐筆內外盤，K 線無法完整回測**。
+- 趨勢濾網：站穩均線 `entry_ma_buffer_points`、均線斜率 `use_ma_slope_filter`。
+
+**日內兩套（orb / ma_fvd）共用**：早/夜盤各最多 4 次、單日 −2890 斷路器、收盤前 15 分強制平倉。
+**波段（efficiency/swing）**：以目標部位調節、留倉、AntiFrequency 控頻、可停用單日斷路器。
+三套共用：TXF 訊號 → TMF/MXF 範圍市價下單、獨立風控執行緒、統一 log。
+
+> 📊 回測方法見 [`BACKTEST.md`](BACKTEST.md)。本雲端環境無法取得真實行情，故附**合成市場**僅供
+> 驗證引擎與參數穩健性；**真實邊際與「整體營利」請務必用你自己的 K 線跑 `orb_backtest.py` 逐年檢視。**
 
 ## 時段切割
 

@@ -25,7 +25,8 @@ def main() -> int:
     args = parser.parse_args()
 
     load_dotenv()
-    cfg = Config.from_env()
+    # 最終上線設定：TMF 1 口、高效波段(30分)留倉版；再以 .env 覆寫安全閘與金鑰。
+    cfg = Config.from_env(base=Config.tmf_swing())
     log = setup_logger(cfg.log_dir)
 
     try:
