@@ -112,31 +112,48 @@ class ORBStrategy:
         if st.or_high == float("-inf"):
             return Decision(Signal.NONE, reason="no_OR")
 
-        # --- 反向突破出場（持倉時優先）---
-        if position > 0 and bar.close < st.or_low:
-            return Decision(Signal.EXIT, reason="break_back_below_OR")
-        if position < 0 and bar.close > st.or_high:
-            return Decision(Signal.EXIT, reason="break_back_above_OR")
+        fade = (self.cfg.orb_mode == "fade")
+
+        # --- 反向突破出場（僅 breakout 模式；fade 由停損/停利/強平處理）---
+        if not fade:
+            if position > 0 and bar.close < st.or_low:
+                return Decision(Signal.EXIT, reason="break_back_below_OR")
+            if position < 0 and bar.close > st.or_high:
+                return Decision(Signal.EXIT, reason="break_back_above_OR")
 
         if position != 0:
             return Decision(Signal.NONE)
 
-        # --- 過濾過寬區間（已大幅移動，追高風險大）---
+        # --- 過濾過寬區間（已大幅移動，追/逆都風險大）---
         if self.cfg.orb_max_or_points > 0 and st.or_width > self.cfg.orb_max_or_points:
             return Decision(Signal.NONE, reason="OR_too_wide")
 
         buf = self.cfg.orb_breakout_buffer_points
         vwap = st.vwap()
+        fixed = self.cfg.per_trade_stop_points
         long_break = bar.close > st.or_high + buf
         short_break = bar.close < st.or_low - buf
 
-        # VWAP 趨勢濾網。
+        if fade:
+            # 逆勢反手：跌破下緣 → 做多(賭回測)；突破上緣 → 放空。
+            # VWAP 濾網改為「乖離確認」：價格須在 VWAP 另一側，回歸才有空間。
+            if self.cfg.orb_use_vwap_filter and vwap is not None:
+                long_ok = bar.close <= vwap
+                short_ok = bar.close >= vwap
+            else:
+                long_ok = short_ok = True
+            if short_break and long_ok:
+                return Decision(Signal.ENTER_LONG, stop_price=bar.close - fixed, reason="fade_low_break")
+            if long_break and short_ok:
+                return Decision(Signal.ENTER_SHORT, stop_price=bar.close + fixed, reason="fade_high_break")
+            return Decision(Signal.NONE)
+
+        # --- breakout（追突破）---
         if self.cfg.orb_use_vwap_filter and vwap is not None:
             long_ok = bar.close >= vwap
             short_ok = bar.close <= vwap
         else:
             long_ok = short_ok = True
-
         if long_break and long_ok:
             stop = self._calc_stop(entry=bar.close, or_opposite=st.or_low, is_long=True)
             return Decision(Signal.ENTER_LONG, stop_price=stop, reason="break_up")

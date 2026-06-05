@@ -83,7 +83,7 @@ def load_bars(path: str, ts_utc: bool = False) -> List[Bar]:
     with open(path, newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            tval = _pick(row, "ts", "datetime", "Datetime", "Date", "time", "Time")
+            tval = _pick(row, "ts", "dt", "datetime", "Datetime", "Date", "time", "Time")
             if tval is None:
                 continue
             try:
@@ -334,9 +334,10 @@ def by_year(bars: List[Bar]) -> Dict[int, List[Bar]]:
     return dict(sorted(g.items()))
 
 
-def run_yearly(cfg: Config, bars: List[Bar]) -> Tuple[Result, Dict[int, Result]]:
-    overall = ORBBacktester(cfg).run(bars)
-    per_year = {y: ORBBacktester(cfg).run(yb) for y, yb in by_year(bars).items()}
+def run_yearly(cfg: Config, bars: List[Bar], slippage: float = 1.0,
+               cost: float = 15.0) -> Tuple[Result, Dict[int, Result]]:
+    overall = ORBBacktester(cfg, slippage, cost).run(bars)
+    per_year = {y: ORBBacktester(cfg, slippage, cost).run(yb) for y, yb in by_year(bars).items()}
     return overall, per_year
 
 
@@ -344,9 +345,10 @@ def run_yearly(cfg: Config, bars: List[Bar]) -> Tuple[Result, Dict[int, Result]]
 #  最佳化
 # =========================================================================== #
 def make_cfg(symbol: str, or_min: int, buf: float, vwap: bool,
-             stop: float, tp_r: float, trail: bool) -> Config:
+             stop: float, tp_r: float, trail: bool, mode: str = "fade") -> Config:
     c = Config()
     c.strategy = "orb"
+    c.orb_mode = mode
     c.order_symbol = symbol
     c.or_minutes = or_min
     c.orb_breakout_buffer_points = buf
@@ -357,23 +359,24 @@ def make_cfg(symbol: str, or_min: int, buf: float, vwap: bool,
     return c
 
 
-def optimize(symbol: str, bars: List[Bar], min_trades: int = 30):
+def optimize(symbol: str, bars: List[Bar], min_trades: int = 30, modes=("fade", "breakout"), slippage: float = 1.0, cost: float = 15.0):
     grid = []
-    for or_min in (15, 30, 45):
-        for buf in (1, 3, 6):
-            for vwap in (True, False):
-                for stop in (20, 30, 45):
-                    for tp_r in (1.5, 2.5):
-                        for trail in (True, False):
-                            grid.append((or_min, buf, vwap, stop, tp_r, trail))
+    for mode in modes:
+        for or_min in (15, 30):
+            for buf in (3,):
+                for vwap in (True, False):
+                    for stop in (20, 35):
+                        for tp_r in (1.5, 3.0):
+                            for trail in (True, False):
+                                grid.append((mode, or_min, buf, vwap, stop, tp_r, trail))
     results = []
-    for (or_min, buf, vwap, stop, tp_r, trail) in grid:
-        cfg = make_cfg(symbol, or_min, buf, vwap, stop, tp_r, trail)
+    for (mode, or_min, buf, vwap, stop, tp_r, trail) in grid:
+        cfg = make_cfg(symbol, or_min, buf, vwap, stop, tp_r, trail, mode)
         try:
             cfg.validate()
         except Exception:
             continue
-        r = ORBBacktester(cfg).run(bars)
+        r = ORBBacktester(cfg, slippage, cost).run(bars)
         results.append((cfg, r))
 
     def score(item):
@@ -420,6 +423,7 @@ def main():
     ap.add_argument("--symbol", default="TMF", choices=list(CONTRACT_SPECS.keys()))
     ap.add_argument("--resample", type=int, default=5, help="重新取樣成幾分 K (預設 5)")
     ap.add_argument("--ts-utc", action="store_true", help="CSV 時間戳為 UTC（預設視為台北時間）")
+    ap.add_argument("--mode", default="fade", choices=["fade", "breakout"], help="ORB 模式（預設 fade 逆勢）")
     ap.add_argument("--optimize", action="store_true", help="grid search 找最佳風報比參數")
     ap.add_argument("--cost", type=float, default=15.0, help="單邊成本 TWD（手續費+稅，預設 15）")
     ap.add_argument("--slippage", type=float, default=1.0, help="單邊滑價點數（預設 1）")
@@ -444,7 +448,7 @@ def main():
 
     if args.optimize:
         print("執行最佳化中（grid search，可能需數十秒）…")
-        results = optimize(args.symbol, bars)
+        results = optimize(args.symbol, bars, slippage=args.slippage, cost=args.cost)
         print(f"\n{'排名':<4}{'OR':>4}{'buf':>5}{'VWAP':>6}{'停損':>6}{'TP':>6}{'trail':>7}"
               f"{'淨利':>11}{'PF':>6}{'MDD':>10}{'恢復':>7}{'勝率':>7}{'筆數':>6}{'斷路':>6}")
         print("-" * 96)
@@ -455,7 +459,7 @@ def main():
                   f"{r.net_pnl:>11,.0f}{min(r.profit_factor,99):>6.2f}{r.max_drawdown:>10,.0f}"
                   f"{r.recovery:>7.2f}{r.win_rate*100:>6.1f}%{r.n_trades:>6}{r.cb_days:>6}")
         best_cfg, _ = results[0]
-        overall, per_year = run_yearly(best_cfg, bars)
+        overall, per_year = run_yearly(best_cfg, bars, args.slippage, args.cost)
         print_full(best_cfg, overall, per_year, pv)
         print("\n→ 建議寫入 tmf_trader/config.py：")
         print(f"     strategy='orb'  or_minutes={best_cfg.or_minutes}  "
@@ -465,8 +469,8 @@ def main():
               f"orb_take_profit_R={best_cfg.orb_take_profit_R}  "
               f"orb_use_trailing={best_cfg.orb_use_trailing}")
     else:
-        cfg = make_cfg(args.symbol, 30, 3, True, 30, 1.8, True)
-        overall, per_year = run_yearly(cfg, bars)
+        cfg = make_cfg(args.symbol, 30, 3, True, 30, 1.8, True, mode=args.mode)
+        overall, per_year = run_yearly(cfg, bars, args.slippage, args.cost)
         print_full(cfg, overall, per_year, pv)
         print("\n（想自動找最佳參數，加 --optimize）")
 

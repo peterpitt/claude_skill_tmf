@@ -79,6 +79,9 @@ class Config:
     # ---- ORB 開盤區間突破策略（早/夜盤通用，完全可用 K 線回測）------- #
     #  策略選擇："orb" 或 "ma_fvd"（舊版需逐筆內外盤，K線無法完整回測）。
     strategy: str = "orb"
+    #  orb_mode："breakout"=追突破（趨勢）；"fade"=逆勢反手（賭開盤區間假突破回測）。
+    #  實測 TXF 日內：突破常失敗、區間回歸 → 預設改用 fade。
+    orb_mode: str = "fade"
     or_minutes: int = 30                 # 開盤後幾分鐘建立開盤區間
     orb_breakout_buffer_points: float = 2.0   # 突破需超出區間多少點才算數
     orb_use_vwap_filter: bool = True     # 只順著當盤 VWAP 方向進場
