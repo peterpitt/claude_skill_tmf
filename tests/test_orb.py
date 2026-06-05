@@ -20,9 +20,10 @@ from tmf_trader.strategy_orb import ORBStrategy, Signal  # noqa: E402
 TZ = pytz.timezone("Asia/Taipei")
 
 
-def _cfg():
+def _cfg(mode="breakout"):
     c = Config()
     c.order_symbol = "TMF"
+    c.orb_mode = mode
     c.or_minutes = 30
     c.orb_breakout_buffer_points = 2
     c.orb_use_vwap_filter = True
@@ -101,6 +102,20 @@ def test_orb_vwap_filter_blocks_counter_trend():
     dec = strat.on_bar(_bar(t, 21090, 21095, 21075, 21079), 0, t)
     # 21079 仍 > VWAP(~21100? actually <)：確保至少不誤觸發多單
     assert dec.signal in (Signal.NONE, Signal.ENTER_SHORT)
+
+
+def test_orb_fade_mode_inverts_direction():
+    """fade 模式：跌破下緣 → 做多（與 breakout 相反）。"""
+    cfg = _cfg(mode="fade")
+    strat = ORBStrategy(cfg, SessionManager(cfg))
+    t = _day_open(8, 45)
+    for i in range(6):
+        strat.on_bar(_bar(t, 21015, 21020, 21000, 21010), 0, t)
+        t += timedelta(minutes=5)
+    # 收盤 20985 跌破下緣 21000：fade 模式應『做多』，停損在下方
+    dec = strat.on_bar(_bar(t, 21005, 21010, 20980, 20985), 0, t)
+    assert dec.signal == Signal.ENTER_LONG
+    assert dec.stop_price < 20985
 
 
 def test_orb_resets_each_session():
