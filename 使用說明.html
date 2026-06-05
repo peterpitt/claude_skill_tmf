@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TMF 自動交易系統 — 使用說明</title>
+<style>
+  :root{--bg:#0f1115;--card:#1a1e26;--ink:#e7ebf0;--mut:#9aa6b2;--ac:#4ea1ff;--ok:#39c07a;--warn:#ffb020;--bad:#ff5d5d;--line:#2a3038;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,"Noto Sans TC","Microsoft JhengHei",sans-serif;line-height:1.7}
+  .wrap{max-width:920px;margin:0 auto;padding:32px 20px 80px}
+  h1{font-size:28px;margin:0 0 4px}
+  h2{font-size:21px;margin:38px 0 12px;padding-bottom:8px;border-bottom:2px solid var(--line)}
+  h3{font-size:17px;margin:22px 0 8px;color:var(--ac)}
+  .sub{color:var(--mut);margin:0 0 24px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:14px 0}
+  code,pre{font-family:"SF Mono",Consolas,monospace}
+  code{background:#11151c;padding:2px 6px;border-radius:5px;color:#cfe5ff;font-size:.92em}
+  pre{background:#0b0e13;border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow:auto;font-size:13.5px}
+  pre code{background:none;padding:0;color:#d6e1ee}
+  .pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12.5px;font-weight:700}
+  .g{background:rgba(57,192,122,.15);color:var(--ok)} .y{background:rgba(255,176,32,.15);color:var(--warn)} .r{background:rgba(255,93,93,.15);color:var(--bad)}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#161b22;color:var(--mut)}
+  .warn{border-left:4px solid var(--warn);background:rgba(255,176,32,.07)}
+  .bad{border-left:4px solid var(--bad);background:rgba(255,93,93,.07)}
+  .ok{border-left:4px solid var(--ok);background:rgba(57,192,122,.07)}
+  .step{display:flex;gap:14px;margin:8px 0}
+  .num{flex:0 0 30px;height:30px;border-radius:50%;background:var(--ac);color:#06121f;font-weight:800;display:flex;align-items:center;justify-content:center}
+  ul{margin:6px 0 6px 2px;padding-left:20px} li{margin:4px 0}
+  .kbd{font-size:12px;color:var(--mut)}
+  a{color:var(--ac)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>TMF 台指期 自動交易系統</h1>
+  <p class="sub">最終配置：<b>微型台指 TMF · 固定 1 口 · 高效波段(效率比) 30 分 K · 留倉波段</b>。本頁教你從下載到實際下單。</p>
+
+  <div class="card bad">
+    <b>⚠️ 先讀這段（攸關你的資金）</b>
+    <ul>
+      <li>期貨是<b>槓桿商品，可能虧損超過本金</b>。本系統僅供研究與自負風險使用，作者不對任何虧損負責。</li>
+      <li>系統<b>預設 DRY_RUN（只算訊號、不送單）</b>，不會自己動用真錢。要動真錢必須手動解開三道安全閘。</li>
+      <li>這套策略<b>會留倉（隔夜）</b>。它的邊際來自波段，與「絕不留倉、單日 −2890」互斥；資金保護改由 <b>1 口固定部位 + 策略自身出場</b> 負責。</li>
+      <li>真實資料逐年回測：恢復係數約 2.9、6/7 年正報酬，但<b>最大回落≈本金 30%、勝率僅約 40%</b>（連虧是常態）。心理與資金都要能撐住。</li>
+    </ul>
+  </div>
+
+  <h2>一、這系統在做什麼</h2>
+  <div class="card">
+    <ul>
+      <li><b>訊號來源</b>：大台 TXF 即時報價 → 自行合成 30 分 K 線。</li>
+      <li><b>進場</b>：用 Kaufman <b>效率比 (ER)</b> 判斷趨勢是否「順暢」。ER 由下穿越 +0.5 做多、由上穿越 −0.5 做空（並過「去除頻繁交易」濾網）。</li>
+      <li><b>出場</b>：ER 跌破／突破 0 即順勢出場（<b>刻意不加硬停損</b>——回測證實硬停損會打斷順勢、反而變差）。</li>
+      <li><b>下單</b>：對 <b>當月 TMF（NT$10/點）</b> 送出範圍市價、固定 1 口；多空可反手；會留倉。</li>
+      <li><b>風控</b>：獨立執行緒監看損益＋部位簿即時對帳；本配置停用單日斷路器（波段不適用），靠 1 口固定部位控管。</li>
+    </ul>
+  </div>
+
+  <h2>二、開始前你需要準備（在永豐金證券辦）</h2>
+  <div class="card">
+    <div class="step"><div class="num">1</div><div>開立<b>期貨帳戶</b>並<b>入金</b>（跑 1 口 TMF 保證金不高，但建議帳上留足夠緩衝）。</div></div>
+    <div class="step"><div class="num">2</div><div>申請 <b>Shioaji API 權限</b>，取得 <b>API Key</b> 與 <b>Secret Key</b>。</div></div>
+    <div class="step"><div class="num">3</div><div>下載<b>憑證檔 <code>Sinopac.pfx</code></b>（真錢實單必須；模擬不用）。</div></div>
+  </div>
+
+  <h2>三、安裝</h2>
+  <div class="card">
+<pre><code># 下載專案
+git clone &lt;你的 GitHub repo 網址&gt;
+cd claude_skill_tmf
+
+# 建立虛擬環境並安裝套件
+python3 -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+
+# 建立設定檔
+cp .env.example .env            # 然後用文字編輯器打開 .env 填資料</code></pre>
+  </div>
+
+  <h2>四、填寫 <code>.env</code></h2>
+  <div class="card">
+<pre><code># —— Shioaji 金鑰（必填）——
+SHIOAJI_API_KEY=你的APIKey
+SHIOAJI_SECRET_KEY=你的SecretKey
+
+# —— 憑證：真錢實單必填，模擬可留空 ——
+SHIOAJI_CA_PATH=/路徑/Sinopac.pfx
+SHIOAJI_CA_PASSWD=憑證密碼
+SHIOAJI_PERSON_ID=你的身分證字號
+
+# —— 安全閘（預設最安全，先別改）——
+DRY_RUN=true
+SIMULATION=true
+LIVE_TRADING_CONFIRM=NO</code></pre>
+    <p class="kbd">策略本身（TMF／1 口／高效波段 30 分）已是程式預設，<code>python main.py</code> 直接就是這個配置，不需另外設定。</p>
+  </div>
+
+  <h2>五、三階段上線（務必照順序，別跳關）</h2>
+  <table>
+    <tr><th>階段</th><th>.env 設定</th><th>會發生什麼</th></tr>
+    <tr><td><span class="pill g">🟢 1 DRY_RUN</span></td>
+        <td><code>DRY_RUN=true</code></td>
+        <td>只在畫面印出「將要下單」的訊號，<b>完全不送單</b>。先看一兩天，確認訊號與行為合理。</td></tr>
+    <tr><td><span class="pill y">🟡 2 模擬主機</span></td>
+        <td><code>DRY_RUN=false</code><br><code>SIMULATION=true</code></td>
+        <td>送到<b>永豐模擬主機</b>（假錢、不需憑證）。驗證下單、成交回報、平倉、反手是否真的會動。<b>建議至少跑滿一週。</b></td></tr>
+    <tr><td><span class="pill r">🔴 3 真錢實單</span></td>
+        <td><code>DRY_RUN=false</code><br><code>SIMULATION=false</code><br><code>LIVE_TRADING_CONFIRM=I_UNDERSTAND_THE_RISK</code></td>
+        <td>真錢、需憑證。<b>固定 1 口、全程盯盤</b>，確認停損／平倉行為與模擬一致再放手。</td></tr>
+  </table>
+  <div class="card warn">少了最後那行確認鎖 <code>LIVE_TRADING_CONFIRM=I_UNDERSTAND_THE_RISK</code>，程式會<b>拒絕</b>用真錢啟動——這是故意的保險。</div>
+
+  <h2>六、執行</h2>
+  <div class="card">
+    <h3>先做設定自我檢查（不連線、不下單）</h3>
+<pre><code>python main.py --check</code></pre>
+    <p>會印出契約＝TMF、每點 10 元、策略＝高效波段、交易型態＝swing 等，確認無誤再往下。</p>
+
+    <h3>直接執行</h3>
+<pre><code>python main.py</code></pre>
+
+    <h3>建議：用 tmux 常駐（斷線也能跑、crash 自動重啟）</h3>
+<pre><code>chmod +x run.sh
+./run.sh          # 啟動（背景 tmux session 名為 tmf）
+./run.sh attach   # 連入看即時 log（離開按 Ctrl-b 再按 d）
+./run.sh stop     # 停止</code></pre>
+    <p class="kbd">所有交易與風控都會寫進 <code>logs/trade_YYYYMMDD.log</code>，事後可完整稽核。</p>
+  </div>
+
+  <h2>七、想微調？（都在 <code>tmf_trader/config.py</code>）</h2>
+  <table>
+    <tr><th>參數</th><th>預設</th><th>意義</th></tr>
+    <tr><td><code>order_quantity</code></td><td>1</td><td>下單口數。<b>建議維持 1。</b></td></tr>
+    <tr><td><code>kbar_minutes</code></td><td>30</td><td>K 線週期（回測最佳為 30 分；15 分明顯較差）。</td></tr>
+    <tr><td><code>er_length</code> / <code>er_threshold</code></td><td>20 / 0.5</td><td>效率比的長度與進場門檻。</td></tr>
+    <tr><td><code>use_antifreq</code></td><td>True</td><td>去除頻繁交易濾網（回測中唯一明確有益者，建議保持開）。</td></tr>
+    <tr><td><code>daily_max_loss_twd</code></td><td>0</td><td>單日斷路器；0＝停用（波段適用）。若你要一個硬安全底限，可設一個夠大的值（會偶爾中斷策略）。</td></tr>
+  </table>
+
+  <h2>八、自己驗證績效（用你的 K 線）</h2>
+  <div class="card">
+    <p>把你的 <code>txf_kbars.csv</code> 放好，於本機跑：</p>
+<pre><code># 各策略 × 各週期 逐年績效
+python swing_backtest.py --csv "你的txf_kbars.csv" --symbol TMF
+
+# 高效波段 × 濾網 的 15分 vs 30分 比較
+python combo_backtest.py --csv "你的txf_kbars.csv" --symbol TMF</code></pre>
+    <p class="kbd">回測有滑價／成本估計誤差，<b>過去績效不代表未來</b>。請務必逐年都看，不要只看總數。</p>
+  </div>
+
+  <h2>九、常見問題</h2>
+  <div class="card">
+    <h3>它會自己停損嗎？</h3>
+    <p>不設硬停損；出場由「效率比跌破 0」觸發，或多空反手。下檔風險靠<b>固定 1 口</b>限制。若你無法接受沒有硬停損，這套策略可能不適合你。</p>
+    <h3>會留倉嗎？我原本要當沖。</h3>
+    <p><b>會留倉。</b>這正是它能擺脫日內摩擦的原因。若你堅持絕不留倉，回測顯示日內版只能約略損益兩平——那條路我們已驗證走不通。</p>
+    <h3>為什麼斷路器設 0（停用）？</h3>
+    <p>單日 −2890 是<b>日內</b>風控；波段留倉的正常隔夜波動就常超過它，硬套會不斷砍掉好部位、毀掉策略邊際。所以改用 1 口固定部位控管風險。</p>
+    <h3>程式關掉後，手上的單怎麼辦？</h3>
+    <p>正常用 <code>Ctrl-C</code> 或 <code>./run.sh stop</code> 結束時，會嘗試<b>平掉部位</b>再登出。但網路／主機異常時不保證，<b>請務必另在永豐 App 設定即時損益提醒並能手動平倉。</b></p>
+  </div>
+
+  <div class="card bad">
+    <b>最後叮嚀</b>：先 DRY_RUN → 再模擬一週 → 真錢只用 1 口並盯盤。任何「保證獲利」的說法都不要信，包括這套系統——它只是一個<b>有逐年邊際、但仍會大幅回落的工具</b>，不是印鈔機。保住本金，永遠比多賺一筆重要。
+  </div>
+
+</div>
+</body>
+</html>

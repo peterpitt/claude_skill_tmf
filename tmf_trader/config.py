@@ -162,8 +162,33 @@ class Config:
 
     # ------------------------------------------------------------------ #
     @classmethod
-    def from_env(cls) -> "Config":
-        """從環境變數載入可覆寫的欄位。"""
+    def tmf_swing(cls) -> "Config":
+        """最終上線設定：TMF 微台、1 口、高效波段(30分)留倉版。
+
+        這是用真實 K 線逐年回測後挑出的『扣成本後有逐年邊際』組合：
+          - 下單契約 TMF（NT$10/點），固定 1 口（資金保護的第一道防線）。
+          - 策略 efficiency（Kaufman 效率比）、30 分 K、去除頻繁交易濾網。
+          - swing 留倉：關閉收盤前強平與每盤出手上限。
+          - 單日斷路器停用（=0）：日內 −2890 與波段留倉天生衝突；風險改由
+            『1 口固定部位 + 策略自身出場(效率比跌破0)』控管。
+        """
+        c = cls()
+        c.order_symbol = "TMF"
+        c.order_quantity = 1
+        c.strategy = "efficiency"
+        c.trading_style = "swing"
+        c.kbar_minutes = 30
+        c.er_length = 20
+        c.er_threshold = 0.5
+        c.use_antifreq = True
+        c.antifreq_range_bars = 200
+        c.antifreq_max_trades = 3
+        c.daily_max_loss_twd = 0.0
+        return c
+
+    @classmethod
+    def from_env(cls, base: "Config | None" = None) -> "Config":
+        """從環境變數載入可覆寫的欄位（base 給定時以它為基礎，否則用預設）。"""
 
         def _bool(name: str, default: bool) -> bool:
             v = os.getenv(name)
@@ -171,7 +196,7 @@ class Config:
                 return default
             return v.strip().lower() in ("1", "true", "yes", "y", "on")
 
-        cfg = cls()
+        cfg = base if base is not None else cls()
         cfg.dry_run = _bool("DRY_RUN", cfg.dry_run)
         cfg.simulation = _bool("SIMULATION", cfg.simulation)
         cfg.live_confirm = os.getenv("LIVE_TRADING_CONFIRM", cfg.live_confirm).strip()
