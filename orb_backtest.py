@@ -108,11 +108,12 @@ def resample(bars: List[Bar], minutes: int) -> List[Bar]:
     cur: Optional[Bar] = None
     cur_key = None
     for b in bars:
-        key = (b.start.date(), b.start.hour, (b.start.minute // minutes))
+        key = (b.start.date(), (b.start.hour * 60 + b.start.minute) // minutes)
         if cur is None or key != cur_key:
             if cur is not None:
                 out.append(cur)
-            start = b.start.replace(minute=(b.start.minute // minutes) * minutes,
+            bmin = ((b.start.hour * 60 + b.start.minute) // minutes) * minutes
+            start = b.start.replace(hour=bmin // 60, minute=bmin % 60,
                                     second=0, microsecond=0)
             cur = Bar(start, b.open, b.high, b.low, b.close, b.volume)
             cur_key = key
