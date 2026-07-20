@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>30 天 Google 面試英語衝刺 · English Interview Sprint</title>
+  <meta name="description" content="AI 為英文口說卡關者打造的 30 天中英雙語學習 App，助你具備參加 Google 工作面試的溝通能力。" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- 頂部導覽 -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">🎯</span>
+      <div>
+        <div class="brand-title">30 天面試英語衝刺</div>
+        <div class="brand-sub">English Interview Sprint · Google-ready</div>
+      </div>
+    </div>
+    <nav class="tabs">
+      <button class="tab active" data-view="dashboard">總覽</button>
+      <button class="tab" data-view="lesson">今日課程</button>
+      <button class="tab" data-view="flashcards">單字卡</button>
+      <button class="tab" data-view="simulator">面試模擬</button>
+    </nav>
+  </header>
+
+  <main id="app">
+    <!-- ============ 總覽 Dashboard ============ -->
+    <section id="view-dashboard" class="view active">
+      <div class="hero">
+        <div class="hero-left">
+          <h1>30 天，練到能用英文闖過 Google 面試</h1>
+          <p class="hero-desc">
+            專為「聽得懂、但開不了口」而設計。每天 20–30 分鐘，跟著結構化課程 +
+            AI 語音練習，從自我介紹一路練到完整模擬面試。
+          </p>
+          <div class="hero-actions">
+            <button class="btn primary" id="continueBtn">繼續今天的課程 →</button>
+            <button class="btn ghost" id="resetBtn">重設進度</button>
+          </div>
+        </div>
+        <div class="hero-ring">
+          <svg viewBox="0 0 120 120" class="ring">
+            <circle cx="60" cy="60" r="52" class="ring-bg"></circle>
+            <circle cx="60" cy="60" r="52" class="ring-fg" id="ringFg"></circle>
+          </svg>
+          <div class="ring-label">
+            <div class="ring-num" id="ringNum">0</div>
+            <div class="ring-unit">/ 30 天完成</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stats">
+        <div class="stat"><div class="stat-num" id="statDone">0</div><div class="stat-label">已完成天數</div></div>
+        <div class="stat"><div class="stat-num" id="statStreak">0</div><div class="stat-label">連續學習</div></div>
+        <div class="stat"><div class="stat-num" id="statWords">0</div><div class="stat-label">學過字彙</div></div>
+        <div class="stat"><div class="stat-num" id="statWeek">1</div><div class="stat-label">目前週次</div></div>
+      </div>
+
+      <h2 class="section-title">30 天學習地圖</h2>
+      <div class="weeks" id="weekMap"></div>
+    </section>
+
+    <!-- ============ 今日課程 Lesson ============ -->
+    <section id="view-lesson" class="view">
+      <div class="lesson-nav">
+        <button class="btn small ghost" id="prevDay">← 前一天</button>
+        <div class="day-picker">
+          <label>第 <select id="daySelect"></select> 天</label>
+        </div>
+        <button class="btn small ghost" id="nextDay">後一天 →</button>
+      </div>
+
+      <div class="lesson-head">
+        <div class="lesson-badge" id="lessonWeek">Week 1</div>
+        <h1 id="lessonTitleZh">—</h1>
+        <div class="lesson-title-en" id="lessonTitleEn">—</div>
+        <p class="lesson-goal" id="lessonGoal">—</p>
+      </div>
+
+      <div class="block">
+        <h3>📚 重點字彙 <span class="hint">點 🔊 聽發音</span></h3>
+        <div id="vocabList" class="vocab-grid"></div>
+      </div>
+
+      <div class="block">
+        <h3>🧩 實用句型</h3>
+        <div id="patternList" class="pattern-list"></div>
+      </div>
+
+      <div class="block">
+        <h3>💬 情境對話 <span class="hint">點角色朗讀，或用 🎙 跟讀比對</span></h3>
+        <div id="dialogueList" class="dialogue-list"></div>
+      </div>
+
+      <div class="block">
+        <h3>🎤 面試題演練</h3>
+        <div id="interviewList" class="interview-list"></div>
+      </div>
+
+      <div class="block task-block">
+        <h3>✅ 今日挑戰任務</h3>
+        <p id="taskText">—</p>
+        <button class="btn primary" id="completeBtn">標記今天完成 ✓</button>
+      </div>
+    </section>
+
+    <!-- ============ 單字卡 Flashcards ============ -->
+    <section id="view-flashcards" class="view">
+      <h1>單字卡複習</h1>
+      <p class="muted">從你已學過的天數隨機抽字，翻卡自測。點卡片翻面，🔊 聽發音。</p>
+      <div class="fc-controls">
+        <label>範圍：
+          <select id="fcRange">
+            <option value="learned">已學過的天數</option>
+            <option value="all">全部 30 天</option>
+          </select>
+        </label>
+        <button class="btn small" id="fcShuffle">🔀 洗牌</button>
+      </div>
+      <div class="flashcard" id="flashcard">
+        <div class="fc-inner" id="fcInner">
+          <div class="fc-front"><div class="fc-en" id="fcEn">按「開始」抽卡</div><button class="fc-speak" id="fcSpeak">🔊</button></div>
+          <div class="fc-back"><div class="fc-zh" id="fcZh">—</div><div class="fc-ex" id="fcEx"></div></div>
+        </div>
+      </div>
+      <div class="fc-nav">
+        <button class="btn ghost" id="fcPrev">← 上一張</button>
+        <span id="fcCounter" class="muted">0 / 0</span>
+        <button class="btn primary" id="fcNext">下一張 →</button>
+      </div>
+    </section>
+
+    <!-- ============ 面試模擬器 Simulator ============ -->
+    <section id="view-simulator" class="view">
+      <h1>Google 面試模擬器</h1>
+      <p class="muted">隨機抽題，用麥克風作答，系統即時把你說的英文轉成文字讓你檢視。點題目可聽朗讀。</p>
+      <div class="sim-controls">
+        <label>題型：
+          <select id="simType">
+            <option value="all">全部混合</option>
+            <option value="behavioral">行為面試</option>
+            <option value="technical">技術/情境</option>
+            <option value="motivation">動機/收尾</option>
+          </select>
+        </label>
+        <button class="btn primary" id="simNext">抽下一題 🎲</button>
+      </div>
+
+      <div class="sim-card">
+        <div class="sim-q-label">面試官問：</div>
+        <div class="sim-q" id="simQ">按「抽下一題」開始你的模擬面試</div>
+        <button class="btn small ghost" id="simSpeakQ">🔊 聽題目</button>
+      </div>
+
+      <div class="sim-answer">
+        <div class="sim-a-head">
+          <span>你的回答（語音轉文字）</span>
+          <button class="btn small primary" id="micBtn">🎙 開始錄音</button>
+        </div>
+        <div class="sim-transcript" id="simTranscript">按「開始錄音」後對著麥克風說英文……</div>
+        <div class="sim-timer" id="simTimer"></div>
+      </div>
+
+      <div class="sim-tips">
+        <h3>📋 自我評分清單</h3>
+        <ul>
+          <li>開頭有先問候 / 澄清問題嗎？</li>
+          <li>行為題有走完 STAR（情境→任務→行動→結果）嗎？</li>
+          <li>技術題有「出聲思考」+ 講到取捨嗎？</li>
+          <li>有量化的成果（數字、百分比）嗎？</li>
+          <li>語速穩、沒有長時間中文式停頓嗎？</li>
+          <li>結尾有力，並反問對方問題了嗎？</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span>由 AI 打造 · 進度自動存在你的瀏覽器 · 建議用 Chrome / Edge 以支援語音功能</span>
+  </footer>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="curriculum.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
