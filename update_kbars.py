@@ -55,6 +55,23 @@ def _key(b: Bar) -> str:
     return b.start.strftime(FMT)
 
 
+def _date_windows(start: str, end: str, max_days: int = 30):
+    """把 [start, end]（YYYY-MM-DD）切成不超過 max_days 天的連續分段。
+
+    Shioaji kbars 單次上限 30 天，超過會回 400。用 max_days-1 的步距讓相鄰分段端點相接，
+    重疊的那一天在後續 merge_bars 會自動去重，不會重複計。
+    """
+    s = datetime.strptime(start, "%Y-%m-%d").date()
+    e = datetime.strptime(end, "%Y-%m-%d").date()
+    if s > e:
+        s = e
+    cur = s
+    while cur <= e:
+        w_end = min(cur + timedelta(days=max_days - 1), e)
+        yield cur.strftime("%Y-%m-%d"), w_end.strftime("%Y-%m-%d")
+        cur = w_end + timedelta(days=1)
+
+
 def infer_minutes(bars: list[Bar], default: int = 5) -> int:
     """從現有 CSV 推斷 K 線週期（分鐘）：讓 1 分檔保持 1 分、5 分檔保持 5 分。
 
@@ -123,39 +140,48 @@ def fetch_fresh_bars(cat: str, contract_code: str, start: str, end: str,
     print(f"登入 Shioaji（simulation={simulation}）… 只查資料、不下單")
     api = sj.Shioaji(simulation=simulation)
     api.login(api_key=key, secret_key=secret)
+    one_min: list[Bar] = []
+    epoch = datetime(1970, 1, 1)
     try:
         cat_obj = getattr(api.Contracts.Futures, cat)
         contract = cat_obj[contract_code]
         if contract is None:
             sys.exit(f"❌ 找不到契約 {cat}/{contract_code}（近月連續請用 TXFR1）。")
-        print(f"抓取 {cat}/{contract_code} K 線：{start} → {end}")
-        kb = api.kbars(contract, start=start, end=end)
-        d = {**kb}                     # 轉成純 dict：keys 有 ts/Open/High/Low/Close/Volume/Amount
+
+        # Shioaji kbars 單次上限 30 天，故切成 ≤30 天的分段逐段抓、再串起來。
+        # 某一段失敗（例如超出免費歷史範圍）不中斷整體：警告後跳過，保住抓得到的部分。
+        for w_start, w_end in _date_windows(start, end, max_days=30):
+            print(f"抓取 {cat}/{contract_code} K 線：{w_start} → {w_end}")
+            try:
+                kb = api.kbars(contract, start=w_start, end=w_end)
+            except Exception as e:      # noqa: BLE001 — 分段容錯，逐段回報
+                print(f"  ⚠️  這段抓取失敗，跳過：{e}")
+                continue
+            d = {**kb}                  # keys: ts/Open/High/Low/Close/Volume/Amount
+            ts = list(d.get("ts", []))
+            if not ts:
+                continue
+            o, h, l, c, v = (list(d["Open"]), list(d["High"]), list(d["Low"]),
+                             list(d["Close"]), list(d["Volume"]))
+            for i in range(len(ts)):
+                # Shioaji 的 ts 為奈秒，牆鐘即台北當地時間 —— 與 orb_backtest._to_dt
+                # 對數字時戳的處理一致（建 naive 後視為台北）。
+                naive = epoch + timedelta(seconds=float(ts[i]) / 1e9)
+                one_min.append(Bar(TZ.localize(naive), float(o[i]), float(h[i]),
+                                   float(l[i]), float(c[i]), int(float(v[i]))))
     finally:
         try:
             api.logout()
         except Exception:
             pass
 
-    ts = list(d.get("ts", []))
-    if not ts:
-        print("⚠️  這個區間沒有回傳任何 K 線（可能超出免費歷史範圍，或非交易日）。")
+    if not one_min:
+        print("⚠️  整個區間沒有回傳任何 K 線（可能全部超出免費歷史範圍，或都非交易日）。")
         return []
 
-    o, h, l, c, v = (list(d["Open"]), list(d["High"]), list(d["Low"]),
-                     list(d["Close"]), list(d["Volume"]))
-    one_min: list[Bar] = []
-    epoch = datetime(1970, 1, 1)
-    for i in range(len(ts)):
-        # Shioaji 的 ts 為奈秒，且其牆鐘即台北當地時間 —— 與 orb_backtest._to_dt
-        # 對數字時戳的處理一致（建 naive 後視為台北）。
-        naive = epoch + timedelta(seconds=float(ts[i]) / 1e9)
-        aware = TZ.localize(naive)
-        one_min.append(Bar(aware, float(o[i]), float(h[i]),
-                           float(l[i]), float(c[i]), int(float(v[i]))))
     one_min.sort(key=lambda b: b.start)
     fresh = resample(one_min, minutes) if minutes > 1 else one_min
-    print(f"取得 {len(one_min)} 根原始 K → 重新取樣成 {len(fresh)} 根 {minutes} 分 K")
+    print(f"取得 {len(one_min)} 根原始 1 分 K → 重新取樣成 {len(fresh)} 根 {minutes} 分 K")
     return fresh
 
 
