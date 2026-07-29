@@ -55,6 +55,23 @@ def _key(b: Bar) -> str:
     return b.start.strftime(FMT)
 
 
+def infer_minutes(bars: list[Bar], default: int = 5) -> int:
+    """從現有 CSV 推斷 K 線週期（分鐘）：讓 1 分檔保持 1 分、5 分檔保持 5 分。
+
+    取相鄰 K 棒的時間差、濾掉跨盤/跨日的大跳空（>60 分），用出現最多次的間隔當週期。
+    這樣使用者的檔案是幾分 K，更新後就還是幾分 K，不會被硬改成 5 分。
+    """
+    if len(bars) < 3:
+        return default
+    from collections import Counter
+    gaps = Counter()
+    for a, b in zip(bars, bars[1:]):
+        diff = round((b.start - a.start).total_seconds() / 60)
+        if 0 < diff <= 60:
+            gaps[diff] += 1
+    return gaps.most_common(1)[0][0] if gaps else default
+
+
 def merge_bars(existing: list[Bar], fresh: list[Bar]) -> list[Bar]:
     """合併舊 + 新，依時間去重（重疊區間以 fresh 為準）、時間排序。
 
@@ -148,7 +165,8 @@ def main() -> int:
     ap.add_argument("--csv", default=DEFAULT_CSV, help="要更新的 CSV（預設自動偵測）")
     ap.add_argument("--contract", default="TXFR1", help="契約代碼（近月連續，預設 TXFR1）")
     ap.add_argument("--cat", default="TXF", help="契約類別（預設 TXF）")
-    ap.add_argument("--minutes", type=int, default=5, help="重新取樣週期，需與你的 CSV 一致（預設 5）")
+    ap.add_argument("--minutes", type=int, default=0,
+                    help="重新取樣週期；0=自動比對現有 CSV 的週期（1 分檔存 1 分、5 分檔存 5 分）")
     ap.add_argument("--start", default=None, help="強制起始日 YYYY-MM-DD（預設：接續 CSV 最後一天）")
     ap.add_argument("--overlap-days", type=int, default=3,
                     help="接續抓取時往回多抓幾天以防漏單/修正（預設 3）")
@@ -158,11 +176,16 @@ def main() -> int:
     args = ap.parse_args()
 
     existing = load_bars(args.csv) if os.path.exists(args.csv) else []
+    minutes = args.minutes if args.minutes > 0 else infer_minutes(existing)
     if existing:
         last = existing[-1].start
         print(f"現有 CSV：{args.csv}\n  {len(existing)} 根，最後一根 {last:%Y-%m-%d %H:%M}")
+        if args.minutes == 0:
+            print(f"  自動判定週期：{minutes} 分 K（更新後維持同週期）")
     else:
-        print(f"現有 CSV 不存在或為空：{args.csv}（將建立新檔）")
+        if args.minutes == 0:
+            minutes = 5
+        print(f"現有 CSV 不存在或為空：{args.csv}（將建立新檔，週期 {minutes} 分）")
 
     # 決定抓取起始日
     if args.start:
@@ -176,7 +199,7 @@ def main() -> int:
     end = datetime.now(TZ).strftime("%Y-%m-%d")
 
     fresh = fetch_fresh_bars(args.cat, args.contract, start, end,
-                             args.minutes, args.simulation)
+                             minutes, args.simulation)
     if not fresh:
         print("沒有新資料可合併，結束。")
         return 0
