@@ -9,6 +9,9 @@
 > `txf_kbars.csv` / `TXFR1_5min_5years.csv`；(3) 專案資料夾裡檔名含 `TXF`/`5min`/`kbar` 的 CSV；
 > (4) 專案裡剛好只有一個 CSV 時直接用。所以**把最新 K 線 CSV 放進專案資料夾、或設 `TXF_CSV`，
 > 之後覆寫同一個檔就會自動更新**，不必再改任何腳本。仍可用 `--csv` 臨時指定別的檔。
+>
+> 🔄 **要自動補新資料**：跑 `python update_kbars.py`——用 Shioaji API（只需 API 金鑰、不需 CA 憑證）
+> 抓最新 TXF K 線、增量合併去重進同一個 CSV，寫檔前自動備份 `.bak`。跑完直接重測即為最新。
 
 ## 用哪一支？
 
