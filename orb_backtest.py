@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import glob
 import math
 import os
 from collections import defaultdict
@@ -36,7 +37,53 @@ from tmf_trader.kbar import Bar
 from tmf_trader.session import SessionManager, SessionType
 from tmf_trader.strategy_orb import Decision, ORBStrategy, Signal
 
-DEFAULT_CSV = r"C:\Users\User\Desktop\codex\codexclaw\txf_kbars.csv"
+def resolve_default_csv() -> str:
+    """決定預設要讀哪個 K 線 CSV。
+
+    設計目標：讓使用者「換檔即更新」——只要把新的台指 K 線 CSV 放進專案資料夾
+    （或用環境變數指定），所有回測腳本都自動抓到，**不必再改任何程式**。
+
+    解析順序（先找到先用）：
+      1. 環境變數 TXF_CSV：適合把資料放在固定的共用資料夾、定期覆寫更新。
+      2. 專案資料夾裡的慣用檔名（txf_kbars.csv / TXFR1_5min_5years.csv）。
+      3. 專案資料夾裡符合台指 K 線特徵的 CSV（TXF*.csv、*5min*.csv、*kbar*.csv）。
+      4. 專案資料夾裡「剛好只有一個」CSV 時，直接採用（避免誤抓多檔）。
+      5. 都找不到 → 回傳慣用預期路徑，讓錯誤訊息指向專案資料夾，提示放檔位置。
+    """
+    env = os.environ.get("TXF_CSV")
+    if env:
+        return env
+    here = os.path.dirname(os.path.abspath(__file__))
+    for name in ("txf_kbars.csv", "TXFR1_5min_5years.csv"):
+        p = os.path.join(here, name)
+        if os.path.exists(p):
+            return p
+    found: List[str] = []
+    for pat in ("TXF*.csv", "txf*.csv", "*5min*.csv", "*kbar*.csv"):
+        found.extend(glob.glob(os.path.join(here, pat)))
+    uniq = sorted(set(found))
+    if uniq:
+        return uniq[0]
+    csvs = glob.glob(os.path.join(here, "*.csv"))
+    if len(csvs) == 1:
+        return csvs[0]
+    return os.path.join(here, "txf_kbars.csv")
+
+
+DEFAULT_CSV = resolve_default_csv()
+
+
+def csv_not_found_msg(path: str) -> str:
+    """找不到 CSV 時的提示：告訴使用者三種供檔方式（含『換檔即更新』的作法）。"""
+    here = os.path.dirname(os.path.abspath(__file__))
+    return (
+        f"❌ 找不到 K 線檔案：{path}\n"
+        f"   請三選一（任一種都可持續更新，換檔即生效）：\n"
+        f"   (1) 把 CSV 放進專案資料夾：{here}\n"
+        f"       檔名含 TXF / 5min / kbar 會自動偵測（例：TXFR1_5min_5years.csv）。\n"
+        f"   (2) 設環境變數 TXF_CSV=完整路徑（適合放固定資料夾、定期覆寫更新）。\n"
+        f"   (3) 執行時加參數： --csv \"你的檔案路徑\""
+    )
 
 
 # =========================================================================== #
@@ -431,9 +478,7 @@ def main():
     args = ap.parse_args()
 
     if not os.path.exists(args.csv):
-        print(f"❌ 找不到檔案：{args.csv}")
-        print("   我（雲端沙盒）無法存取你本機 Windows 的路徑。請在你本機執行此腳本，")
-        print("   或用 --csv 指定可存取的路徑，或把 CSV 上傳給我。")
+        print(csv_not_found_msg(args.csv))
         return 2
 
     print(f"讀取 {args.csv} …")

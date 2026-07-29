@@ -30,7 +30,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 from tmf_trader.config import CONTRACT_SPECS, Config
 from tmf_trader.kbar import Bar
 from tmf_trader.session import SessionManager
-from orb_backtest import DEFAULT_CSV, Result, load_bars, resample
+from orb_backtest import DEFAULT_CSV, Result, csv_not_found_msg, load_bars, resample
 
 # --------------------------------------------------------------------------- #
 #  指標（純 Python，避免額外相依）
@@ -321,7 +321,7 @@ def main():
     args = ap.parse_args()
 
     if not os.path.exists(args.csv):
-        print(f"❌ 找不到檔案：{args.csv}（雲端無法存取本機路徑，請本機執行或 --csv 指定）")
+        print(csv_not_found_msg(args.csv))
         return 2
 
     cfg = Config(); cfg.order_symbol = args.symbol

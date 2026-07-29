@@ -17,7 +17,7 @@ from typing import Dict, List, Optional, Tuple
 from tmf_trader.config import CONTRACT_SPECS, Config
 from tmf_trader.filters import AntiFrequency, HotHours, LossCooldown, atr_stop_target
 from tmf_trader.kbar import Bar
-from orb_backtest import DEFAULT_CSV, Result, load_bars, resample
+from orb_backtest import DEFAULT_CSV, Result, csv_not_found_msg, load_bars, resample
 from swing_backtest import atr_series, efficiency_ratio
 
 # 預設熱門時段：早盤全段 + 夜盤前段(15:00-23:00)，避開凌晨薄量。
@@ -170,7 +170,7 @@ def main():
     args = ap.parse_args()
 
     if not os.path.exists(args.csv):
-        print(f"❌ 找不到檔案：{args.csv}（雲端無法存取本機路徑，請本機執行或 --csv 指定）")
+        print(csv_not_found_msg(args.csv))
         return 2
 
     pv = CONTRACT_SPECS[args.symbol].point_value

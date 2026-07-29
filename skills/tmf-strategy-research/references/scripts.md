@@ -4,9 +4,11 @@
 預設下單契約 `TMF`（NT$10/點）。CSV 欄位：`datetime,Open,High,Low,Close,Volume`；
 時間戳預設視為台北時間（`orb_backtest.py` 可用 `--ts-utc` 改）。
 
-> ⚠️ 各腳本的 `DEFAULT_CSV` 硬寫成作者本機的 Windows 路徑
-> （`C:\Users\User\Desktop\codex\codexclaw\txf_kbars.csv`），**在別的機器上一定要用
-> `--csv` 指定真實檔案**，否則會讀不到檔或誤用合成市場。
+> 📂 **CSV 自動偵測（換檔即更新，免改程式）**：`orb_backtest.py` 的 `resolve_default_csv()`
+> 依序找檔——(1) 環境變數 `TXF_CSV` 指定的完整路徑；(2) 專案資料夾裡的慣用檔名
+> `txf_kbars.csv` / `TXFR1_5min_5years.csv`；(3) 專案資料夾裡檔名含 `TXF`/`5min`/`kbar` 的 CSV；
+> (4) 專案裡剛好只有一個 CSV 時直接用。所以**把最新 K 線 CSV 放進專案資料夾、或設 `TXF_CSV`，
+> 之後覆寫同一個檔就會自動更新**，不必再改任何腳本。仍可用 `--csv` 臨時指定別的檔。
 
 ## 用哪一支？
 

@@ -25,7 +25,7 @@ from typing import Dict, List, Optional, Tuple
 from tmf_trader.config import CONTRACT_SPECS, Config
 from tmf_trader.kbar import Bar
 from tmf_trader.session import SessionManager, SessionType
-from orb_backtest import DEFAULT_CSV, Result, load_bars, resample
+from orb_backtest import DEFAULT_CSV, Result, csv_not_found_msg, load_bars, resample
 
 
 def trading_day_hl(bars: List[Bar], sm: SessionManager) -> Dict[str, Tuple[float, float]]:
@@ -229,7 +229,7 @@ def main():
     ap.add_argument("--slippage", type=float, default=1.0)
     args = ap.parse_args()
     if not os.path.exists(args.csv):
-        print(f"❌ 找不到檔案：{args.csv}（雲端無法存取本機路徑，請本機執行或 --csv 指定）"); return 2
+        print(csv_not_found_msg(args.csv)); return 2
 
     cfg = Config(); cfg.order_symbol = args.symbol; cfg.kbar_minutes = 5
     pv = CONTRACT_SPECS[args.symbol].point_value
