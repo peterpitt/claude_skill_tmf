@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ShortReel Studio · 一站式短影音變現平台</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="menu-toggle" id="menu-toggle">☰</div>
+
+  <div class="app">
+    <!-- ============ Sidebar ============ -->
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="logo">🎬</div>
+        <div>
+          <h1>ShortReel Studio</h1>
+          <span>短影音變現一條龍</span>
+        </div>
+      </div>
+
+      <div class="nav-item active" data-page="dashboard"><span class="ico">📊</span> 儀表板</div>
+      <div class="nav-item" data-page="pipeline"><span class="ico">🗂️</span> 製作流水線</div>
+      <div class="nav-item" data-page="studio"><span class="ico">✨</span> Prompt 工作室</div>
+      <div class="nav-item" data-page="tools"><span class="ico">🧰</span> AI 工具箱</div>
+      <div class="nav-item" data-page="money"><span class="ico">💰</span> 變現追蹤</div>
+
+      <div class="sidebar-foot">
+        資料儲存在本機瀏覽器<br />
+        <a href="#" id="btn-reset" style="color:var(--accent);text-decoration:none;">↺ 還原示範資料</a>
+      </div>
+    </aside>
+
+    <!-- ============ Main ============ -->
+    <main class="main">
+
+      <!-- ---- 儀表板 ---- -->
+      <section class="page active" id="page-dashboard">
+        <div class="topbar">
+          <div class="page-head">
+            <h2>儀表板</h2>
+            <p>一眼掌握你的短影音產線與變現狀況</p>
+          </div>
+          <button class="btn" id="btn-new">＋ 新增專案</button>
+        </div>
+
+        <div class="stats">
+          <div class="stat">
+            <div class="label">🎞️ 專案總數</div>
+            <div class="value" id="stat-total">0</div>
+            <div class="sub">製作中的短影音</div>
+          </div>
+          <div class="stat">
+            <div class="label">⏳ 製作中</div>
+            <div class="value amber" id="stat-progress">0</div>
+            <div class="sub">尚未發布</div>
+          </div>
+          <div class="stat">
+            <div class="label">🚀 已發布</div>
+            <div class="value" id="stat-published">0</div>
+            <div class="sub">進入變現階段</div>
+          </div>
+          <div class="stat">
+            <div class="label">💵 累積收益</div>
+            <div class="value green" id="stat-revenue">$0</div>
+            <div class="sub">工具月成本 <span id="stat-cost">$0</span></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>本月投報率 (ROI)</h3>
+          <div class="card-sub">收益 vs. 全套 AI 工具月費</div>
+          <div class="value green" id="dash-roi" style="font-size:34px;font-weight:800;">0%</div>
+          <div class="sub" id="dash-net" style="color:var(--muted);font-size:13px;margin-top:6px;"></div>
+        </div>
+
+        <div class="card">
+          <h3>流水線分布</h3>
+          <div class="card-sub">各階段目前有幾支影片</div>
+          <div id="dash-dist"></div>
+        </div>
+      </section>
+
+      <!-- ---- 流水線 ---- -->
+      <section class="page" id="page-pipeline">
+        <div class="topbar">
+          <div class="page-head">
+            <h2>製作流水線</h2>
+            <p>拖曳卡片移動階段 · 點卡片可編輯 · 選題 → 腳本 → 配音 → 影片 → 數位人 → 封面 → 發布</p>
+          </div>
+          <button class="btn" id="btn-new-2">＋ 新增專案</button>
+        </div>
+        <div class="kanban" id="kanban"></div>
+      </section>
+
+      <!-- ---- Prompt 工作室 ---- -->
+      <section class="page" id="page-studio">
+        <div class="page-head">
+          <h2>Prompt 工作室</h2>
+          <p>每個階段一鍵取得專用提示詞，複製到對應 AI 工具即可</p>
+        </div>
+        <div class="studio-grid">
+          <div class="stage-list" id="stage-list"></div>
+          <div class="card prompt-box" style="margin:0;">
+            <h3 id="studio-title"></h3>
+            <div class="card-sub" id="studio-tool"></div>
+            <textarea id="prompt-text" spellcheck="false"></textarea>
+            <div class="prompt-actions">
+              <button class="btn" id="btn-copy">📋 複製 Prompt</button>
+              <button class="btn ghost" id="btn-open-tool">↗ 開啟工具</button>
+              <span style="color:var(--muted);font-size:12px;">把 {topic} 等佔位字換成你的主題</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---- 工具箱 ---- -->
+      <section class="page" id="page-tools">
+        <div class="page-head">
+          <h2>AI 工具箱</h2>
+          <p>大神同款的 9 個工具 · 全套月費 <b id="tools-total" style="color:var(--green)">$0</b></p>
+        </div>
+        <div class="tools-grid" id="tools-grid"></div>
+      </section>
+
+      <!-- ---- 變現追蹤 ---- -->
+      <section class="page" id="page-money">
+        <div class="page-head">
+          <h2>變現追蹤</h2>
+          <p>收益、成本與各平台表現</p>
+        </div>
+        <div class="rev-summary">
+          <div class="stat"><div class="label">💵 總收益</div><div class="value green" id="m-rev">$0</div></div>
+          <div class="stat"><div class="label">🧾 工具月成本</div><div class="value" id="m-cost">$0</div></div>
+          <div class="stat"><div class="label">📈 淨利</div><div class="value green" id="m-net">$0</div></div>
+        </div>
+        <div class="card">
+          <h3>各平台收益</h3>
+          <div class="card-sub">依發布平台彙總</div>
+          <table>
+            <thead><tr><th>平台</th><th>影片數</th><th>收益</th></tr></thead>
+            <tbody id="money-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ============ Modal ============ -->
+  <div class="overlay" id="overlay">
+    <div class="modal">
+      <h3 id="modal-title">新增短影音專案</h3>
+      <div class="field">
+        <label>影片標題</label>
+        <input id="f-title" placeholder="例：3 個被低估的 AI 賺錢副業" />
+      </div>
+      <div class="field">
+        <label>主題 / 領域</label>
+        <input id="f-topic" placeholder="例：AI 副業" />
+      </div>
+      <div class="field">
+        <label>發布平台</label>
+        <select id="f-platform">
+          <option>YouTube Shorts</option>
+          <option>TikTok</option>
+          <option>IG Reels</option>
+          <option>抖音</option>
+          <option>視頻號</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>目前階段</label>
+        <select id="f-stage"></select>
+      </div>
+      <div class="field">
+        <label>收益（美金 $）</label>
+        <input id="f-revenue" type="number" min="0" step="1" value="0" />
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:6px;">
+        <button class="btn ghost" id="btn-delete" style="margin-right:auto;color:#ff6b6b;">刪除</button>
+        <button class="btn ghost" id="btn-cancel">取消</button>
+        <button class="btn" id="btn-save">儲存</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
